@@ -10,11 +10,14 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from roleplay import datagen
 from roleplay.datagen import (
     BATCH_SIZE,
+    MAX_CONSECUTIVE_EMPTY,
     SCENARIOS,
+    GenerationShortfallError,
     _batch_sizes,
     _render_examples,
     _scenario_distribution,
@@ -222,8 +225,12 @@ class GenerateEndToEndTests(unittest.TestCase):
             json.dumps({"user": "示例问题", "assistant": "示例回答"}, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
+        # Avoid real sleeps during empty-retry / inter-batch delays.
+        self._sleep_patcher = patch("roleplay.datagen.time.sleep")
+        self._sleep_patcher.start()
 
     def tearDown(self):
+        self._sleep_patcher.stop()
         self.tmp.cleanup()
 
     def _build_responses(self, pairs_per_call: int = 5) -> list[str]:
@@ -262,20 +269,21 @@ class GenerateEndToEndTests(unittest.TestCase):
         self.assertNotIn("assistant", rl_lines[0])
         self.assertIn("user", eval_lines[0])
 
-    def test_retry_on_empty_response(self):
-        empty_first_then_ok = [
+    def test_retry_on_empty_response_still_reaches_target(self):
+        """Empty first call is retried; partial pair is kept and later batches fill up."""
+        empty_first_then_partial = [
             "",
             json.dumps({"pairs": [{"user": "u", "assistant": "a"}]}),
         ]
-        rest = self._build_responses(pairs_per_call=5)[2:]
-        client = _FakeClient(empty_first_then_ok + rest)
+        rest = self._build_responses(pairs_per_call=5)
+        client = _FakeClient(empty_first_then_partial + rest)
 
         import io
         from contextlib import redirect_stderr
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            generate(
+            outputs = generate(
                 persona_path=self.persona_path,
                 examples_path=self.examples_path,
                 profile="smoke",
@@ -283,6 +291,64 @@ class GenerateEndToEndTests(unittest.TestCase):
                 client=client,
             )
         self.assertIn("重试一次", buf.getvalue())
+        sft_n = sum(1 for _ in outputs["sft"].read_text(encoding="utf-8").splitlines())
+        rl_n = sum(1 for _ in outputs["rl"].read_text(encoding="utf-8").splitlines())
+        eval_n = sum(1 for _ in outputs["eval"].read_text(encoding="utf-8").splitlines())
+        self.assertEqual(sft_n, 100)
+        self.assertEqual(rl_n, 30)
+        self.assertEqual(eval_n, 50)
+
+    def test_partial_valid_response_is_backfilled(self):
+        """Teacher returning fewer pairs than requested must still hit profile targets."""
+        partial = json.dumps({"pairs": [{"user": "only_one", "assistant": "a"}]})
+        rest = self._build_responses(pairs_per_call=5)
+        client = _FakeClient([partial] + rest)
+
+        outputs = generate(
+            persona_path=self.persona_path,
+            examples_path=self.examples_path,
+            profile="smoke",
+            output_dir=self.tmpdir,
+            client=client,
+        )
+        sft_lines = [
+            json.loads(line)
+            for line in outputs["sft"].read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(sft_lines), 100)
+        self.assertEqual(sft_lines[0]["messages"][1]["content"], "only_one")
+
+    def test_shortfall_fails_without_overwriting_existing(self):
+        """Exhausted empty retries must fail and leave prior artifacts untouched."""
+        sft_path = self.tmpdir / "sft_train.jsonl"
+        rl_path = self.tmpdir / "rl_train.jsonl"
+        eval_path = self.tmpdir / "eval.jsonl"
+        marker = '{"marker":"keep-me"}\n'
+        sft_path.write_text(marker, encoding="utf-8")
+        rl_path.write_text(marker, encoding="utf-8")
+        eval_path.write_text(marker, encoding="utf-8")
+
+        # Each empty batch: first call + one retry = 2 API responses.
+        empties = [""] * (MAX_CONSECUTIVE_EMPTY * 2 + 4)
+        client = _FakeClient(empties)
+
+        import io
+        from contextlib import redirect_stderr
+
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(GenerationShortfallError):
+                generate(
+                    persona_path=self.persona_path,
+                    examples_path=self.examples_path,
+                    profile="smoke",
+                    output_dir=self.tmpdir,
+                    client=client,
+                )
+
+        self.assertEqual(sft_path.read_text(encoding="utf-8"), marker)
+        self.assertEqual(rl_path.read_text(encoding="utf-8"), marker)
+        self.assertEqual(eval_path.read_text(encoding="utf-8"), marker)
+        self.assertFalse((self.tmpdir / "sft_train.jsonl.tmp").exists())
 
     def test_unknown_profile_raises(self):
         client = _FakeClient([])

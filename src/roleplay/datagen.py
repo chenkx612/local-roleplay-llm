@@ -98,6 +98,12 @@ SCENARIOS: tuple[dict[str, str], ...] = (
 )
 
 BATCH_SIZE = 5
+# Consecutive teacher batches that yield zero valid pairs before giving up on a scenario.
+MAX_CONSECUTIVE_EMPTY = 5
+
+
+class GenerationShortfallError(RuntimeError):
+    """Raised when generation cannot reach the requested number of pairs."""
 
 
 @dataclass
@@ -244,11 +250,23 @@ def _generate_for_scenario(
     max_tokens: int,
     label: str,
 ) -> list[dict[str, str]]:
+    """Keep requesting batches until ``total`` valid pairs are collected.
+
+    Partial teacher responses are kept and the shortfall is requested in later
+    batches. After ``MAX_CONSECUTIVE_EMPTY`` batches that yield zero valid pairs
+    (each empty response is retried once), raise ``GenerationShortfallError``
+    instead of returning a short list.
+    """
+    if total <= 0:
+        return []
+
     system = build_teacher_system(context.persona_text, context.examples_text, context.persona_name)
-    sizes = _batch_sizes(total)
     collected: list[dict[str, str]] = []
     offset = 0
-    for size in sizes:
+    consecutive_empty = 0
+
+    while len(collected) < total:
+        size = min(BATCH_SIZE, total - len(collected))
         user_prompt = build_scenario_user_prompt(scenario, size, offset)
         raw = _call_teacher(client, model, system, user_prompt, max_tokens=max_tokens)
         parsed = parse_pairs(raw)
@@ -257,15 +275,32 @@ def _generate_for_scenario(
             time.sleep(1.0)
             raw = _call_teacher(client, model, system, user_prompt, max_tokens=max_tokens)
             parsed = parse_pairs(raw)
+
         if parsed:
-            collected.extend(parsed)
-            print(f"  [{label}/{scenario['id']}] +{len(parsed)} 条（累计 {len(collected)}）")
+            need = total - len(collected)
+            taken = parsed[:need]
+            collected.extend(taken)
+            offset += len(taken)
+            consecutive_empty = 0
+            print(
+                f"  [{label}/{scenario['id']}] +{len(taken)} 条"
+                f"（累计 {len(collected)}/{total}）"
+            )
         else:
-            print(f"  [{label}/{scenario['id']}] 重试仍为空，丢弃本批次", file=sys.stderr)
-        offset += size
-        if len(collected) >= total:
-            break
+            consecutive_empty += 1
+            print(
+                f"  [{label}/{scenario['id']}] 重试仍为空"
+                f"（连续空批 {consecutive_empty}/{MAX_CONSECUTIVE_EMPTY}）",
+                file=sys.stderr,
+            )
+            if consecutive_empty >= MAX_CONSECUTIVE_EMPTY:
+                raise GenerationShortfallError(
+                    f"[{label}/{scenario['id']}] 目标 {total} 条，"
+                    f"连续 {MAX_CONSECUTIVE_EMPTY} 次无有效数据后仅得到 {len(collected)} 条，"
+                    f"停止生成以免写出残缺产物"
+                )
         time.sleep(0.3)
+
     return collected[:total]
 
 
@@ -288,7 +323,15 @@ def _generate_all_scenarios(
         pairs = _generate_for_scenario(
             client, model, scenario, n, context, max_tokens, label
         )
+        if len(pairs) != n:
+            raise GenerationShortfallError(
+                f"[{label}/{scenario['id']}] 目标 {n} 条，实际 {len(pairs)} 条"
+            )
         all_pairs.extend(pairs)
+    if len(all_pairs) != total:
+        raise GenerationShortfallError(
+            f"[{label}] 目标 {total} 条，实际 {len(all_pairs)} 条"
+        )
     return all_pairs
 
 
@@ -310,10 +353,18 @@ def format_prompt_records(pairs: list[dict[str, str]]) -> list[dict[str, str]]:
 
 
 def write_jsonl(records: list[Any], path: Path) -> None:
+    """Write JSONL atomically via a sibling ``.tmp`` file then ``replace``."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as file:
-        for record in records:
-            file.write(json.dumps(record, ensure_ascii=False) + "\n")
+    tmp_path = path.with_name(path.name + ".tmp")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as file:
+            for record in records:
+                file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        tmp_path.replace(path)
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def build_deepseek_client(api_key: str | None = None, base_url: str | None = None) -> OpenAI:
@@ -355,6 +406,8 @@ def generate(
 
     print(f"=== 开始生成（profile={profile}）角色：{persona['name']} ===")
 
+    # Generate fully before touching any output paths so a shortfall never
+    # overwrites previous complete artifacts.
     sft_pairs = _generate_all_scenarios(
         client, model, targets["sft"], context, max_tokens=2048, label="SFT"
     )
@@ -364,6 +417,27 @@ def generate(
     eval_pairs = _generate_all_scenarios(
         client, model, targets["eval"], context, max_tokens=1536, label="EVAL"
     )
+
+    actual = {
+        "SFT": len(sft_pairs),
+        "GRPO": len(grpo_pairs),
+        "EVAL": len(eval_pairs),
+    }
+    expected = {
+        "SFT": targets["sft"],
+        "GRPO": targets["grpo"],
+        "EVAL": targets["eval"],
+    }
+    shortfalls = [
+        f"{name}: {actual[name]}/{expected[name]}"
+        for name in expected
+        if actual[name] != expected[name]
+    ]
+    if shortfalls:
+        raise GenerationShortfallError(
+            "生成数量未达目标，已跳过写盘以保留已有产物："
+            + "；".join(shortfalls)
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     sft_path = output_dir / "sft_train.jsonl"
@@ -413,15 +487,18 @@ def main() -> None:
     args = parser.parse_args()
 
     examples_path = args.examples or (args.persona.parent / "examples.jsonl")
-    generate(
-        persona_path=args.persona,
-        examples_path=examples_path,
-        profile=args.profile,
-        output_dir=args.output_dir,
-        api_key=args.api_key,
-        base_url=args.base_url,
-        model=args.model,
-    )
+    try:
+        generate(
+            persona_path=args.persona,
+            examples_path=examples_path,
+            profile=args.profile,
+            output_dir=args.output_dir,
+            api_key=args.api_key,
+            base_url=args.base_url,
+            model=args.model,
+        )
+    except GenerationShortfallError as exc:
+        raise SystemExit(f"生成失败：{exc}") from exc
 
 
 if __name__ == "__main__":
