@@ -5,7 +5,7 @@
 实现一条端到端流水线：
 
 ```text
-角色人设 + 少量对话样例
+结构化角色人设 + 少量对话样例
         ↓
 自动生成训练与评测数据
         ↓
@@ -39,7 +39,7 @@ enable_thinking=false
 ### 必须完成
 
 * 支持一个角色一次训练
-* 输入人设文本和对话样例
+* 输入结构化人设和对话样例
 * 自动生成 SFT 数据
 * LoRA SFT
 * GRPO 强化学习
@@ -71,29 +71,42 @@ enable_thinking=false
 
 用户提供两个文件。
 
-### `persona.md`
+### `persona.json`
 
-使用自然语言描述角色，不要求复杂格式：
+使用浅层结构描述角色。字段值保持为自然语言字符串数组，不继续拆分为复杂知识图谱：
 
-```text
-角色名：林遥
-
-身份：
-生活在近未来城市的私人侦探。
-
-性格：
-冷静、克制、观察力强，不轻易表达关心。
-
-语言风格：
-句子简短，很少使用感叹号，偶尔使用反问。
-
-重要关系：
-把用户视为长期合作的搭档。
-
-行为边界：
-不会主动承认自己是语言模型。
-不知道的事情会保持怀疑，而不是编造。
+```json
+{
+  "name": "林遥",
+  "identity": [
+    "生活在近未来城市的私人侦探"
+  ],
+  "personality": [
+    "冷静、克制、观察力强",
+    "不轻易表达关心"
+  ],
+  "speech_style": [
+    "句子简短",
+    "很少使用感叹号",
+    "偶尔使用反问"
+  ],
+  "relationships": [
+    "把用户视为长期合作的搭档"
+  ],
+  "facts": [],
+  "boundaries": [
+    "不会主动承认自己是语言模型",
+    "不知道的事情会保持怀疑，而不是编造"
+  ],
+  "notes": [
+    "对雨夜有特殊但不愿解释的情感"
+  ]
+}
 ```
+
+`name`、`identity`、`personality`、`speech_style`、`relationships`、`facts` 和
+`boundaries` 为必填字段，其中数组允许为空；`notes` 为可选字段，用于容纳不适合归入
+其他类别的特殊设定。
 
 ### `examples.jsonl`
 
@@ -104,30 +117,30 @@ enable_thinking=false
 {"user": "你担心我吗？", "assistant": "我只是认为，少一个可靠的搭档会很麻烦。"}
 ```
 
-## 3.2 简单角色解析
+## 3.2 输入校验与 Prompt 渲染
 
-调用 Teacher 模型，把 `persona.md` 转换为简化结构：
+程序首先使用固定 Schema 校验 `persona.json`：
 
-```json
-{
-  "identity": [],
-  "personality": [],
-  "speech_style": [],
-  "relationships": [],
-  "facts": [],
-  "boundaries": []
-}
-```
+* 检查必填字段、字段类型和空字符串
+* 拒绝未知字段和不合法的 JSON
+* 保留数组中的自然语言原文，不调用 Teacher 重新解析或改写
 
-只保留这六类，不设计复杂角色知识图谱。
+校验通过后，程序按固定模板把 `persona.json` 渲染为统一的 persona system prompt。
+训练数据生成、基线推理、SFT 推理、GRPO 推理和评测都使用同一渲染逻辑。
+`persona.json` 是角色设定的唯一事实源，system prompt 只是派生产物。
 
 ## 3.3 自动生成数据
 
-Teacher 模型生成约：
+数据生成分为两档，先烟测跑通，再扩到正式 MVP：
 
-* 600～1000 条 SFT 数据
-* 200 条 GRPO Prompt
-* 100 条独立评测 Prompt
+| 数据集 | 烟测 | 正式 MVP |
+|---|---:|---:|
+| SFT 数据 | 100 条 | 300 条 |
+| GRPO Prompt | 30 条 | 100 条 |
+| 独立评测 Prompt | 50 条 | 100 条 |
+
+烟测的目标只是验证数据生成、训练、推理、奖励计算和评测报告能够端到端运行，
+不据此判断训练是否有效。烟测通过后复用同一套代码和配置扩充数据，不另建一条流程。
 
 覆盖五类场景：
 
@@ -147,19 +160,21 @@ Teacher 模型生成约：
 未知：说说你童年时住过的那条街。
 ```
 
-## 3.4 数据过滤
+## 3.4 数据校验
 
-第一版只使用三条简单规则：
+第一版直接信任 Teacher 的生成质量，不设置独立的数据质量过滤阶段，只执行下游运行所需
+的最低限度校验：
 
-* 删除格式错误和空回复
-* 删除与给定样例高度重复的回复
-* 使用 Teacher 判断回复是否明显违反角色设定
+* 检查 JSONL 能否解析以及必填字段是否存在
+* 删除空 Prompt 和空回复
+* 空回复自动重试一次，仍为空则丢弃
 
-不训练额外的数据过滤模型。
+不做相似度去重，不调用 Teacher 二次审核，也不训练额外的数据过滤模型。训练集和评测集
+分别生成，避免直接复用同一批问题。
 
 ## 3.5 Prompt 基线
 
-在训练前保存基础模型对 100 条评测问题的回答：
+在训练前保存基础模型对当前档位评测问题的回答：
 
 ```text
 persona system prompt + user question → Qwen3.5-2B
@@ -236,7 +251,8 @@ SFT LoRA + Persona Prompt
 * 是否出现严重复读
 * 通用对话质量是否明显下降
 
-只有 SFT 明显优于 Base，才继续做 GRPO。
+烟测阶段不设置效果门槛，只检查训练和产物是否正常；正式 MVP 中，只有 SFT 明显优于
+Base，才继续进行正式规模的 GRPO。
 
 ### 阶段产出
 
@@ -390,15 +406,15 @@ C. Qwen3.5-2B + GRPO LoRA + Persona Prompt
 
 ## 6.2 评测集
 
-100 条人工或半人工检查过的问题：
+烟测使用 50 条、正式 MVP 使用 100 条人工或半人工检查过的问题，并在五类场景中均匀分配：
 
-| 类型      | 数量 |
-| ------- | -: |
-| 普通对话    | 20 |
-| 人设事实    | 20 |
-| 人物关系与情绪 | 20 |
-| 语言风格    | 20 |
-| 诱导出戏与冲突 | 20 |
+| 类型 | 烟测 | 正式 MVP |
+|---|---:|---:|
+| 普通对话 | 10 | 20 |
+| 人设事实 | 10 | 20 |
+| 人物关系与情绪 | 10 | 20 |
+| 语言风格 | 10 | 20 |
+| 诱导出戏与冲突 | 10 | 20 |
 
 ## 6.3 指标
 
@@ -410,9 +426,12 @@ C. Qwen3.5-2B + GRPO LoRA + Persona Prompt
 * 明确人设矛盾率
 * 出戏率
 
-另外人工抽查 30 个问题，对 SFT 和 GRPO 的回答做盲选。
+烟测只人工抽查 10 个问题以发现明显故障；正式 MVP 人工抽查 30 个问题，对 SFT 和
+GRPO 的回答做盲选。
 
 ## 6.4 第一版成功标准
+
+以下标准只用于正式 MVP，不用于烟测验收。
 
 满足以下条件即可认为 MVP 成功：
 
@@ -436,7 +455,7 @@ role-rl/
 │   ├── sft.yaml
 │   └── grpo.yaml
 ├── data/
-│   ├── persona.md
+│   ├── persona.json
 │   └── examples.jsonl
 ├── src/
 │   ├── prepare_data.py
@@ -454,10 +473,14 @@ role-rl/
 
 ```bash
 python run_pipeline.py \
-  --persona data/persona.md \
+  --persona data/persona.json \
   --examples data/examples.jsonl \
+  --profile smoke \
   --output outputs/linyao
 ```
+
+`--profile` 支持 `smoke` 和 `mvp`。首次运行必须先使用 `smoke`；烟测通过后只切换
+该参数扩充数据并运行正式 MVP。
 
 最终输出：
 
@@ -476,30 +499,33 @@ outputs/linyao/
 
 # 8. 实现顺序
 
-## Milestone 1：数据与基线
+## Milestone 1：准备烟测数据
 
 * 定义输入格式
-* 完成角色解析
-* 生成训练集和评测集
+* 完成 Persona Schema 校验和 system prompt 渲染
+* 生成 100 条 SFT、30 条 GRPO Prompt 和 50 条评测 Prompt
 * 保存 Base 模型结果
 
-## Milestone 2：SFT 跑通
+## Milestone 2：端到端烟测
 
 * 完成 LoRA SFT
 * 完成推理脚本
-* 验证 SFT 是否超过 Prompt 基线
-
-## Milestone 3：GRPO 跑通
-
 * 实现 Teacher Judge 奖励
 * 加入少量硬规则惩罚
-* 完成 200 条 Prompt 的小规模 GRPO
-* 排查复读和奖励投机
+* 使用 30 条 Prompt 完成 GRPO
+* 跑通 Base、SFT、GRPO 统一评测并生成报告
+* 只验收流程、日志和产物完整性，不设置效果门槛
 
-## Milestone 4：评测与交付
+## Milestone 3：正式 MVP
 
-* 完成三阶段统一评测
-* 生成对比报告
+* 扩充到 300 条 SFT、100 条 GRPO Prompt 和 100 条评测 Prompt
+* 重新训练 SFT，并验证是否超过 Prompt 基线
+* 完成正式 GRPO，排查复读和奖励投机
+* 按成功标准完成三阶段统一评测
+
+## Milestone 4：复现与交付
+
+* 生成最终对比报告
 * 支持第二个角色复现实验
 * 整理 README 和运行命令
 
