@@ -12,6 +12,7 @@ dependencies = ["openai>=1.0"]
 [project.scripts]
 roleplay-chat = "roleplay.chat:main"
 roleplay-datagen = "roleplay.datagen:main"
+roleplay-inference = "roleplay.inference:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
