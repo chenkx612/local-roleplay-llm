@@ -4,21 +4,34 @@ from pathlib import Path
 
 from openai import OpenAI
 
+from .persona import PersonaValidationError, load_persona, render_persona_prompt
 
-ROOT = Path(__file__).resolve().parent
+
+ROOT = Path(__file__).resolve().parents[2]
 MODEL = "mlx-community/Qwen3.5-2B-4bit"
 
 
-def initial_messages(mode: str) -> list[dict[str, str]]:
+def initial_messages(mode: str, persona_path: Path) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
 
     if mode in {"system", "fewshot"}:
-        system_prompt = (ROOT / "prompts/system.txt").read_text().strip()
-        messages.append({"role": "system", "content": system_prompt})
+        persona = load_persona(persona_path)
+        messages.append({"role": "system", "content": render_persona_prompt(persona)})
 
     if mode == "fewshot":
-        few_shot = json.loads((ROOT / "prompts/few_shot.json").read_text())
-        messages.extend(few_shot)
+        examples_path = persona_path.parent / "examples.jsonl"
+        with examples_path.open(encoding="utf-8") as file:
+            for line_number, line in enumerate(file, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    example = json.loads(line)
+                    user, assistant = example["user"], example["assistant"]
+                except (json.JSONDecodeError, KeyError) as exc:
+                    raise ValueError(f"无效样例 {examples_path}:{line_number}") from exc
+                messages.extend(
+                    ({"role": "user", "content": user}, {"role": "assistant", "content": assistant})
+                )
 
     return messages
 
@@ -46,10 +59,16 @@ def main() -> None:
         default="fewshot",
     )
     parser.add_argument("--message", help="发送一条消息后退出")
+    parser.add_argument(
+        "--persona", type=Path, default=ROOT / "data/persona.json", help="角色设定 JSON 文件"
+    )
     args = parser.parse_args()
 
     client = OpenAI(base_url="http://127.0.0.1:8080/v1", api_key="none")
-    messages = initial_messages(args.mode)
+    try:
+        messages = initial_messages(args.mode, args.persona)
+    except (PersonaValidationError, ValueError) as exc:
+        parser.error(str(exc))
 
     if args.message:
         messages.append({"role": "user", "content": args.message})
@@ -69,7 +88,7 @@ def main() -> None:
         if user_input == "/quit":
             break
         if user_input == "/reset":
-            messages = initial_messages(args.mode)
+            messages = initial_messages(args.mode, args.persona)
             print("对话已清空")
             continue
 
