@@ -19,7 +19,7 @@ def initial_messages(mode: str, persona_path: Path) -> list[dict[str, str]]:
         messages.append({"role": "system", "content": render_persona_prompt(persona)})
 
     if mode == "fewshot":
-        examples_path = persona_path.parent / "examples.jsonl"
+        examples_path = persona_path.parent / "style_examples.jsonl"
         with examples_path.open(encoding="utf-8") as file:
             for line_number, line in enumerate(file, start=1):
                 if not line.strip():

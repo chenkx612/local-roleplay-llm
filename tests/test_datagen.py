@@ -181,7 +181,7 @@ class JsonlTests(unittest.TestCase):
 
     def test_load_examples_skips_blank_lines(self):
         with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "examples.jsonl"
+            path = Path(tmp) / "style_examples.jsonl"
             path.write_text(
                 '{"user":"a","assistant":"b"}\n\n{"user":"c","assistant":"d"}\n',
                 encoding="utf-8",
@@ -220,7 +220,7 @@ class GenerateEndToEndTests(unittest.TestCase):
         self.tmpdir = Path(self.tmp.name)
         self.persona_path = self.tmpdir / "persona.json"
         self.persona_path.write_text(json.dumps(PERSONA), encoding="utf-8")
-        self.examples_path = self.tmpdir / "examples.jsonl"
+        self.examples_path = self.tmpdir / "style_examples.jsonl"
         self.examples_path.write_text(
             json.dumps({"user": "示例问题", "assistant": "示例回答"}, ensure_ascii=False) + "\n",
             encoding="utf-8",

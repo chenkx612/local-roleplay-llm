@@ -470,10 +470,10 @@ def main() -> None:
         help="persona.json 路径",
     )
     parser.add_argument(
-        "--examples",
+        "--style-examples",
         type=Path,
         default=None,
-        help="examples.jsonl 路径（默认与 persona 同目录下的 examples.jsonl）",
+        help="style_examples.jsonl 路径（默认与 persona 同目录）",
     )
     parser.add_argument(
         "--output-dir",
@@ -486,7 +486,9 @@ def main() -> None:
     parser.add_argument("--model", default=DEEPSEEK_MODEL, help="DeepSeek 模型名")
     args = parser.parse_args()
 
-    examples_path = args.examples or (args.persona.parent / "examples.jsonl")
+    examples_path = args.style_examples or (
+        args.persona.parent / "style_examples.jsonl"
+    )
     try:
         generate(
             persona_path=args.persona,
