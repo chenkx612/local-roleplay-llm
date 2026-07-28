@@ -1,25 +1,22 @@
-"""Generate SFT, GRPO and evaluation data by calling a DeepSeek teacher model.
+"""Generate frozen SFT, GRPO, dev and evaluation prompts with DeepSeek.
 
 The teacher is prompted with the validated persona and a few in-character examples,
-then asked to emit batches of (user, assistant) dialogue pairs covering five
-scenario types required by PLAN.md §1.3:
+then asked to emit user prompts covering the five scenario types required by
+PLAN.md §1.2:
 
-    1. 普通日常对话
+    1. 日常对话
     2. 角色背景与人物关系
-    3. 情绪和价值选择
-    4. 角色风格表达
-    5. 诱导出戏与人设冲突
+    3. 情绪与选择
+    4. 语言风格
+    5. 出戏、冲突与未知事实
 
 Two generation profiles are supported:
 
-* ``smoke``  - 100 SFT /  30 GRPO /  50 eval (pipeline sanity check)
-* ``mvp``    - 300 SFT / 100 GRPO / 100 eval (first real experiment)
+* ``smoke``  - 100 SFT /  30 GRPO / 20 dev /  50 eval
+* ``mvp``    - 300 SFT / 100 GRPO / 50 dev / 100 eval
 
-SFT records ship with the persona system prompt baked in so they can be fed to
-ms-swift directly. GRPO and eval records deliberately store only the raw user
-question: the persona prompt is rendered once, at training/inference time, from
-``persona.json`` (the single source of truth, see PLAN.md §1.2 / §1.5) so the
-three-stage comparison stays fair.
+All records contain only the raw user prompt. Student and Teacher answers are
+created in later stages, after these mutually isolated splits have been frozen.
 """
 
 from __future__ import annotations
@@ -30,6 +27,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -60,14 +58,14 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-chat"
 
 PROFILES: dict[str, dict[str, int]] = {
-    "smoke": {"sft": 100, "grpo": 30, "eval": 50},
-    "mvp": {"sft": 300, "grpo": 100, "eval": 100},
+    "smoke": {"sft": 100, "grpo": 30, "dev": 20, "eval": 50},
+    "mvp": {"sft": 300, "grpo": 100, "dev": 50, "eval": 100},
 }
 
 SCENARIOS: tuple[dict[str, str], ...] = (
     {
         "id": "daily",
-        "name": "普通日常对话",
+        "name": "日常对话",
         "description": "生活化闲聊、日常安排、吃饭出行、兴趣爱好等普通话题。",
         "hints": "用户话题应多样（起居、工作、天气、兴趣、计划等），避免连续追问同一主题。",
     },
@@ -79,31 +77,31 @@ SCENARIOS: tuple[dict[str, str], ...] = (
     },
     {
         "id": "emotion",
-        "name": "情绪和价值选择",
+        "name": "情绪与选择",
         "description": "安慰、道歉、分歧、价值判断、情感表达等需要情绪拿捏的场景。",
         "hints": "用户情绪可正可负（沮丧、吃醋、兴奋、迷茫），角色表达要符合人设性格。",
     },
     {
         "id": "style",
-        "name": "角色风格表达",
+        "name": "语言风格",
         "description": "最能体现角色说话风格、口头禅、语气特征的场景。",
-        "hints": "重点看角色回答的语气、用词、节奏，而非信息量。",
+        "hints": "设计能自然引出角色特色语气、用词和节奏的问题，避免直接要求复述示例。",
     },
     {
         "id": "adversarial",
-        "name": "诱导出戏与人设冲突",
-        "description": "试图让角色承认自己是 AI、跳出角色，或引用与人设矛盾的信息。",
-        "hints": "用户可采用激将、反问、引用矛盾事实等手法；角色必须保持人设、不承认是模型。",
+        "name": "出戏、冲突与未知事实",
+        "description": "试图让角色出戏、引用冲突信息，或追问设定中不存在的事实和共同经历。",
+        "hints": "混合激将、反问、矛盾事实和未知信息；问题本身不要预设角色已经承认或做过某事。",
     },
 )
 
 BATCH_SIZE = 5
-# Consecutive teacher batches that yield zero valid pairs before giving up on a scenario.
+# Consecutive teacher batches with no new valid prompts before aborting a scenario.
 MAX_CONSECUTIVE_EMPTY = 5
 
 
 class GenerationShortfallError(RuntimeError):
-    """Raised when generation cannot reach the requested number of pairs."""
+    """Raised when generation cannot reach the requested number of prompts."""
 
 
 @dataclass
@@ -123,31 +121,34 @@ def _render_examples(examples: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
-def build_teacher_system(persona_text: str, examples_text: str, persona_name: str) -> str:
+def build_teacher_system(
+    persona_text: str, examples_text: str, persona_name: str
+) -> str:
     return (
-        "你是一位角色扮演对话数据生成教师（Teacher）。你的任务是根据给定的角色设定，\n"
-        "生成自然、多样、符合人设的用户-角色对话对，用于训练一个小型对话模型。\n\n"
+        "你是一位角色扮演数据准备教师（Teacher）。你的任务是根据给定的角色设定，\n"
+        "只生成自然、多样的用户 Prompt；不要生成角色回答。\n\n"
         "【角色设定】\n"
         f"{persona_text}\n\n"
-        "【少量代表性对话样例】\n"
+        "【少量表达风格样例】\n"
         f"{examples_text}\n\n"
         "【生成规则】\n"
-        f"1. 用户的称呼应自然贴合角色与用户的关系（如角色称用户为恋人，用户自称可用“我”）。\n"
-        "2. 用户的提问要多样：长度、语气、话题都应变化，避免模板化。\n"
-        f"3. 角色（{persona_name}）的回答必须严格遵守角色设定的身份、性格、说话风格、关系和边界。\n"
-        "4. 角色回答不要复述角色设定原文，不要堆砌口头禅，不要过度热情或机械化。\n"
-        "5. 每条对话都应独立成立，不要互相引用或依赖。\n"
-        "6. 严禁在角色回答中出现“我是 AI”“我是语言模型”“作为助手”等出戏表达。\n"
-        "7. 回答长度以 1～3 句自然对话为主，不要过长。\n\n"
+        "1. 角色设定是身份、关系、经历和事实的唯一来源。\n"
+        "2. 表达风格样例只用于理解适合引出何种表达，不得把样例中的事实或共同经历当成设定。\n"
+        f"3. 用户的称呼应自然贴合与{persona_name}的关系，问题要像真实即时聊天。\n"
+        "4. Prompt 的长度、语气、话题和句式应变化，避免模板化。\n"
+        "5. 每条 Prompt 都应独立成立，不要互相引用或依赖。\n"
+        "6. 不要在 Prompt 中代替角色回答，也不要要求复述角色设定。\n\n"
         "【输出要求】\n"
-        "严格按 JSON 格式输出，不要包含任何其他说明文字或 markdown 标记。\n"
-        '格式为：{"pairs": [{"user": "...", "assistant": "..."}, ...]}'
+        "严格按 JSON 格式输出，不要包含说明文字或 markdown 标记。\n"
+        '格式为：{"prompts": ["用户 Prompt", "..."]}'
     )
 
 
-def build_scenario_user_prompt(scenario: dict[str, str], count: int, offset: int) -> str:
+def build_scenario_user_prompt(
+    scenario: dict[str, str], count: int, offset: int, split_label: str
+) -> str:
     return (
-        f"请生成 {count} 条属于【{scenario['name']}】场景的用户-角色对话对。\n\n"
+        f"请为 {split_label} split 生成 {count} 条属于【{scenario['name']}】场景的用户 Prompt。\n\n"
         f"场景说明：{scenario['description']}\n"
         f"生成提示：{scenario['hints']}\n\n"
         "多样性要求：\n"
@@ -155,7 +156,7 @@ def build_scenario_user_prompt(scenario: dict[str, str], count: int, offset: int
         "- 用户提问的句式、话题、情绪、长度都要有变化。\n"
         "- 不要使用相同的开头词或相同的追问套路。\n\n"
         "请严格按 JSON 输出，不要 markdown 代码块包裹：\n"
-        '{"pairs": [{"user": "...", "assistant": "..."}, ...]}'
+        '{"prompts": ["用户 Prompt", "..."]}'
     )
 
 
@@ -165,8 +166,8 @@ def _strip_code_fence(text: str) -> str:
     return match.group(1) if match else text
 
 
-def parse_pairs(raw: str) -> list[dict[str, str]]:
-    """Extract a list of {user, assistant} dicts from the teacher response."""
+def parse_prompts(raw: str) -> list[str]:
+    """Extract non-empty user prompts from a teacher response."""
     if not raw or not raw.strip():
         return []
     try:
@@ -175,26 +176,26 @@ def parse_pairs(raw: str) -> list[dict[str, str]]:
         return []
 
     if isinstance(data, dict):
-        pairs = data.get("pairs") or data.get("data") or []
+        prompts = data.get("prompts") or data.get("data") or []
     elif isinstance(data, list):
-        pairs = data
+        prompts = data
     else:
         return []
+    if not isinstance(prompts, list):
+        return []
 
-    valid: list[dict[str, str]] = []
-    for item in pairs:
-        if not isinstance(item, dict):
-            continue
-        user = item.get("user")
-        assistant = item.get("assistant")
-        if (
-            isinstance(user, str)
-            and isinstance(assistant, str)
-            and user.strip()
-            and assistant.strip()
-        ):
-            valid.append({"user": user.strip(), "assistant": assistant.strip()})
+    valid: list[str] = []
+    for item in prompts:
+        user = item.get("user") if isinstance(item, dict) else item
+        if isinstance(user, str) and user.strip():
+            valid.append(user.strip())
     return valid
+
+
+def normalize_prompt(prompt: str) -> str:
+    """Build the conservative comparison key used for exact split deduplication."""
+    normalized = unicodedata.normalize("NFKC", prompt)
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _scenario_distribution(total: int) -> dict[str, int]:
@@ -249,41 +250,48 @@ def _generate_for_scenario(
     context: GenerationContext,
     max_tokens: int,
     label: str,
-) -> list[dict[str, str]]:
-    """Keep requesting batches until ``total`` valid pairs are collected.
+    seen: set[str],
+) -> list[str]:
+    """Keep requesting batches until ``total`` unique valid prompts are collected.
 
     Partial teacher responses are kept and the shortfall is requested in later
-    batches. After ``MAX_CONSECUTIVE_EMPTY`` batches that yield zero valid pairs
-    (each empty response is retried once), raise ``GenerationShortfallError``
-    instead of returning a short list.
+    batches. After ``MAX_CONSECUTIVE_EMPTY`` batches that yield no new valid
+    prompt (each response is retried once), raise ``GenerationShortfallError``.
     """
     if total <= 0:
         return []
 
-    system = build_teacher_system(context.persona_text, context.examples_text, context.persona_name)
-    collected: list[dict[str, str]] = []
+    system = build_teacher_system(
+        context.persona_text, context.examples_text, context.persona_name
+    )
+    collected: list[str] = []
     offset = 0
     consecutive_empty = 0
 
     while len(collected) < total:
         size = min(BATCH_SIZE, total - len(collected))
-        user_prompt = build_scenario_user_prompt(scenario, size, offset)
+        user_prompt = build_scenario_user_prompt(scenario, size, offset, label)
         raw = _call_teacher(client, model, system, user_prompt, max_tokens=max_tokens)
-        parsed = parse_pairs(raw)
-        if not parsed:
-            print(f"  [{label}/{scenario['id']}] 空回复，重试一次", file=sys.stderr)
+        parsed = parse_prompts(raw)
+        accepted = _take_unique_prompts(parsed, seen, total - len(collected))
+        if not accepted:
+            print(
+                f"  [{label}/{scenario['id']}] 无新增有效 Prompt，重试一次",
+                file=sys.stderr,
+            )
             time.sleep(1.0)
             raw = _call_teacher(client, model, system, user_prompt, max_tokens=max_tokens)
-            parsed = parse_pairs(raw)
+            parsed = parse_prompts(raw)
+            accepted = _take_unique_prompts(
+                parsed, seen, total - len(collected)
+            )
 
-        if parsed:
-            need = total - len(collected)
-            taken = parsed[:need]
-            collected.extend(taken)
-            offset += len(taken)
+        if accepted:
+            collected.extend(accepted)
+            offset += len(accepted)
             consecutive_empty = 0
             print(
-                f"  [{label}/{scenario['id']}] +{len(taken)} 条"
+                f"  [{label}/{scenario['id']}] +{len(accepted)} 条"
                 f"（累计 {len(collected)}/{total}）"
             )
         else:
@@ -304,6 +312,21 @@ def _generate_for_scenario(
     return collected[:total]
 
 
+def _take_unique_prompts(
+    prompts: list[str], seen: set[str], limit: int
+) -> list[str]:
+    accepted: list[str] = []
+    for prompt in prompts:
+        key = normalize_prompt(prompt)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        accepted.append(prompt)
+        if len(accepted) >= limit:
+            break
+    return accepted
+
+
 def _generate_all_scenarios(
     client: OpenAI,
     model: str,
@@ -311,45 +334,33 @@ def _generate_all_scenarios(
     context: GenerationContext,
     max_tokens: int,
     label: str,
-) -> list[dict[str, str]]:
+    seen: set[str],
+) -> list[str]:
     dist = _scenario_distribution(total)
     print(f"[{label}] 共 {total} 条，场景分配：{dist}")
-    all_pairs: list[dict[str, str]] = []
+    all_prompts: list[str] = []
     for scenario in SCENARIOS:
         n = dist[scenario["id"]]
         if n == 0:
             continue
         print(f"[{label}] 场景：{scenario['name']}（目标 {n} 条）")
-        pairs = _generate_for_scenario(
-            client, model, scenario, n, context, max_tokens, label
+        prompts = _generate_for_scenario(
+            client, model, scenario, n, context, max_tokens, label, seen
         )
-        if len(pairs) != n:
+        if len(prompts) != n:
             raise GenerationShortfallError(
-                f"[{label}/{scenario['id']}] 目标 {n} 条，实际 {len(pairs)} 条"
+                f"[{label}/{scenario['id']}] 目标 {n} 条，实际 {len(prompts)} 条"
             )
-        all_pairs.extend(pairs)
-    if len(all_pairs) != total:
+        all_prompts.extend(prompts)
+    if len(all_prompts) != total:
         raise GenerationShortfallError(
-            f"[{label}] 目标 {total} 条，实际 {len(all_pairs)} 条"
+            f"[{label}] 目标 {total} 条，实际 {len(all_prompts)} 条"
         )
-    return all_pairs
+    return all_prompts
 
 
-def format_sft_records(pairs: list[dict[str, str]], system_prompt: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": pair["user"]},
-                {"role": "assistant", "content": pair["assistant"]},
-            ]
-        }
-        for pair in pairs
-    ]
-
-
-def format_prompt_records(pairs: list[dict[str, str]]) -> list[dict[str, str]]:
-    return [{"user": pair["user"]} for pair in pairs]
+def format_prompt_records(prompts: list[str]) -> list[dict[str, str]]:
+    return [{"user": prompt} for prompt in prompts]
 
 
 def write_jsonl(records: list[Any], path: Path) -> None:
@@ -365,6 +376,49 @@ def write_jsonl(records: list[Any], path: Path) -> None:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
         raise
+
+
+def write_jsonl_bundle(records_by_path: dict[Path, list[Any]]) -> None:
+    """Stage all JSONL files and roll back the bundle if publication fails."""
+    temp_paths: dict[Path, Path] = {}
+    backup_paths: dict[Path, Path] = {}
+    published: set[Path] = set()
+    try:
+        for path, records in records_by_path.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = path.with_name(path.name + ".tmp")
+            temp_paths[path] = tmp_path
+            with tmp_path.open("w", encoding="utf-8") as file:
+                for record in records:
+                    file.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+        for path in records_by_path:
+            backup_path = path.with_name(path.name + ".bak")
+            if backup_path.exists():
+                raise FileExistsError(f"检测到未清理的备份文件：{backup_path}")
+            if path.exists():
+                backup_paths[path] = backup_path
+
+        for path, backup_path in backup_paths.items():
+            path.replace(backup_path)
+        for path, tmp_path in temp_paths.items():
+            tmp_path.replace(path)
+            published.add(path)
+    except BaseException:
+        for path in published:
+            if path not in backup_paths:
+                path.unlink(missing_ok=True)
+        for path, backup_path in backup_paths.items():
+            if backup_path.exists():
+                backup_path.replace(path)
+        raise
+    else:
+        for backup_path in backup_paths.values():
+            backup_path.unlink()
+    finally:
+        for tmp_path in temp_paths.values():
+            if tmp_path.exists():
+                tmp_path.unlink()
 
 
 def build_deepseek_client(api_key: str | None = None, base_url: str | None = None) -> OpenAI:
@@ -406,26 +460,56 @@ def generate(
 
     print(f"=== 开始生成（profile={profile}）角色：{persona['name']} ===")
 
-    # Generate fully before touching any output paths so a shortfall never
-    # overwrites previous complete artifacts.
-    sft_pairs = _generate_all_scenarios(
-        client, model, targets["sft"], context, max_tokens=2048, label="SFT"
+    # Generate and validate every split before touching output paths. The shared
+    # set enforces both within-split and cross-split exact deduplication.
+    seen: set[str] = set()
+    sft_prompts = _generate_all_scenarios(
+        client,
+        model,
+        targets["sft"],
+        context,
+        max_tokens=1536,
+        label="SFT",
+        seen=seen,
     )
-    grpo_pairs = _generate_all_scenarios(
-        client, model, targets["grpo"], context, max_tokens=1536, label="GRPO"
+    grpo_prompts = _generate_all_scenarios(
+        client,
+        model,
+        targets["grpo"],
+        context,
+        max_tokens=1536,
+        label="GRPO",
+        seen=seen,
     )
-    eval_pairs = _generate_all_scenarios(
-        client, model, targets["eval"], context, max_tokens=1536, label="EVAL"
+    dev_prompts = _generate_all_scenarios(
+        client,
+        model,
+        targets["dev"],
+        context,
+        max_tokens=1536,
+        label="DEV",
+        seen=seen,
+    )
+    eval_prompts = _generate_all_scenarios(
+        client,
+        model,
+        targets["eval"],
+        context,
+        max_tokens=1536,
+        label="EVAL",
+        seen=seen,
     )
 
     actual = {
-        "SFT": len(sft_pairs),
-        "GRPO": len(grpo_pairs),
-        "EVAL": len(eval_pairs),
+        "SFT": len(sft_prompts),
+        "GRPO": len(grpo_prompts),
+        "DEV": len(dev_prompts),
+        "EVAL": len(eval_prompts),
     }
     expected = {
         "SFT": targets["sft"],
         "GRPO": targets["grpo"],
+        "DEV": targets["dev"],
         "EVAL": targets["eval"],
     }
     shortfalls = [
@@ -440,23 +524,32 @@ def generate(
         )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    sft_path = output_dir / "sft_train.jsonl"
+    sft_path = output_dir / "sft_train_prompts.jsonl"
     rl_path = output_dir / "rl_train.jsonl"
+    dev_path = output_dir / "dev.jsonl"
     eval_path = output_dir / "eval.jsonl"
 
-    write_jsonl(format_sft_records(sft_pairs, persona_text), sft_path)
-    write_jsonl(format_prompt_records(grpo_pairs), rl_path)
-    write_jsonl(format_prompt_records(eval_pairs), eval_path)
+    write_jsonl_bundle(
+        {
+            sft_path: format_prompt_records(sft_prompts),
+            rl_path: format_prompt_records(grpo_prompts),
+            dev_path: format_prompt_records(dev_prompts),
+            eval_path: format_prompt_records(eval_prompts),
+        }
+    )
 
     print(f"=== 生成完成 ===")
-    print(f"SFT ：{len(sft_pairs)} 条 -> {sft_path}")
-    print(f"GRPO：{len(grpo_pairs)} 条 -> {rl_path}")
-    print(f"EVAL：{len(eval_pairs)} 条 -> {eval_path}")
-    return {"sft": sft_path, "rl": rl_path, "eval": eval_path}
+    print(f"SFT Prompt ：{len(sft_prompts)} 条 -> {sft_path}")
+    print(f"GRPO Prompt：{len(grpo_prompts)} 条 -> {rl_path}")
+    print(f"Dev Prompt ：{len(dev_prompts)} 条 -> {dev_path}")
+    print(f"Eval Prompt：{len(eval_prompts)} 条 -> {eval_path}")
+    return {"sft": sft_path, "rl": rl_path, "dev": dev_path, "eval": eval_path}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="自动生成 SFT/GRPO/评测数据（DeepSeek API）")
+    parser = argparse.ArgumentParser(
+        description="生成并冻结 SFT/GRPO/Dev/Eval Prompt split（DeepSeek API）"
+    )
     parser.add_argument(
         "--profile",
         choices=sorted(PROFILES),
@@ -481,7 +574,9 @@ def main() -> None:
         default=Path("data"),
         help="输出 JSONL 目录",
     )
-    parser.add_argument("--api-key", default=None, help="DeepSeek API Key（默认读 DEEPSEEK_API_KEY）")
+    parser.add_argument(
+        "--api-key", default=None, help="DeepSeek API Key（默认读 DEEPSEEK_API_KEY）"
+    )
     parser.add_argument("--base-url", default=None, help="自定义 API base URL")
     parser.add_argument("--model", default=DEEPSEEK_MODEL, help="DeepSeek 模型名")
     args = parser.parse_args()

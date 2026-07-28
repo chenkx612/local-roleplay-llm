@@ -9,14 +9,6 @@
 
 ## 待解决问题
 
-### P0｜GRPO 训练集与独立评测集存在精确泄漏
-
-**位置：** `data/rl_train.jsonl`、`data/eval.jsonl`
-
-问题“你以前做过类似的工作吗？”同时出现在 `rl_train.jsonl` 和 `eval.jsonl`。虽然三份数据是分别请求 Teacher 生成的，但代码没有在写出前做跨数据集精确去重，因此不能保证 PLAN 中要求的独立评测。
-
-这会使 GRPO 在训练期间直接见到评测问题，污染 Base/SFT/GRPO 对比。生成完成后至少应对规范化后的 Prompt 做跨 split 精确去重并补齐缺失条目；当前 RL 和 eval 数据也需要重新拆分或重新生成。
-
 ### P1｜单条推理失败会被吞掉，命令仍声称整批完成
 
 **位置：** `src/roleplay/inference.py:63-80`
@@ -42,6 +34,20 @@
 
 ## 已解决问题
 
+### P0｜GRPO 训练集与独立评测集存在精确泄漏
+
+**位置：** `src/roleplay/datagen.py`、`tests/test_datagen.py`、`data/*.jsonl`
+
+**原问题：** GRPO 与 Eval 存在相同 Prompt，且生成器没有 Dev split，也会在冻结
+Prompt 前直接生成 SFT 回答，无法满足训练与评测隔离要求。
+
+**已完成修复：**
+
+- Teacher 只生成用户 Prompt；SFT、GRPO、Dev、Eval 四个 split 全部完成后才写盘。
+- 使用 Unicode NFKC、首尾去空白和连续空白折叠构造全局去重键；保留原始 Prompt 文本。
+- 同批、同 split 和跨 split 重复均被丢弃并继续补齐；重复耗尽时失败且不覆盖已有产物。
+- Smoke 数据已重新生成并验证为 100/30/20/50 条，200 个规范化 Prompt 全局唯一。
+
 ### P0｜基线输出存在截断与退化，不能作为有效对照
 
 **位置：** `src/roleplay/inference.py`、`tests/test_inference.py`、`data/baseline_outputs.jsonl`
@@ -54,6 +60,8 @@
 - 保存并校验 `finish_reason`；空回答、非 `stop` 结束及明显连续复读均视为失败，每条最多尝试 3 次。
 - 任一条重试耗尽时整批非零退出，不覆盖旧产物；全部成功后才原子替换输出文件。
 - 已重新生成 50 条基线：50/50 均以 `stop` 结束、回答非空且未命中复读检测，全部首次生成成功。
+- PLAN 1.2 重建 Eval split 后已删除这份旧基线，避免错配；新基线将在 1.4
+  针对冻结后的 Dev、GRPO 和 Eval 统一生成。
 - 推理测试覆盖参数传递、截断重试、复读重试和失败不覆盖，现有测试全部通过。
 
 ### P0｜数据生成可能少于目标条数，但仍报告成功并覆盖产物
