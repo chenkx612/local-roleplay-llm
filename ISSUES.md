@@ -21,18 +21,15 @@
 - 重试后仍失败时，以非零状态退出，或至少明确将整批标记为不完整；不能无条件打印成功。
 - 校验最终记录数、非空回答数与 eval 输入数完全一致。
 
+## 已解决问题
+
 ### P2｜Base 默认使用的模型与计划中的训练基座不一致
 
 **位置：** `src/roleplay/inference.py:15`、`PLAN.md` 的“基础模型使用”和阶段二技术方案
 
-基线默认模型是 `mlx-community/Qwen3.5-2B-4bit`，而 PLAN 指定 `Qwen/Qwen3.5-2B`，阶段二还明确优先使用 BF16 LoRA。若 SFT/GRPO 基于官方 BF16 权重，Base 却使用另一份 4-bit 转换权重，量化与转换差异会成为额外变量，三阶段不再是同一基座上的公平比较。
-
-**处理建议：**
-
-- Base、SFT 和 GRPO 使用同一基础 checkpoint、相同精度/量化策略及相同推理后端。
-- 至少在输出元数据中记录实际 checkpoint、revision、dtype/量化方式和生成参数。
-
-## 已解决问题
+项目受本地资源限制，Student 推理使用 `mlx-community/Qwen3.5-2B-4bit`。
+ms-swift 训练使用可由 Transformers 加载的 `Qwen/Qwen3.5-2B`，再由受支持的
+BNB 后端做 4-bit QLoRA；不再尝试把 MLX 转换权重直接作为训练基座。
 
 ### P0｜GRPO 训练集与独立评测集存在精确泄漏
 

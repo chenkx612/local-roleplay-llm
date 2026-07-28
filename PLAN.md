@@ -12,7 +12,9 @@ persona + style examples
 → Base/SFT/GRPO 评测报告
 ```
 
-- 基础模型：`Qwen/Qwen3.5-2B`
+- 基础模型：`Qwen/Qwen3.5-2B`，训练时由 ms-swift 支持的后端以 4-bit 加载
+- Student 本地推理：`mlx-community/Qwen3.5-2B-4bit`，revision
+  `674aaa7240b91e8012fcad5d791b7dfe5ba90207`
 - 训练框架：`ms-swift`
 - 训练与推理：`enable_thinking=false`
 
@@ -153,6 +155,7 @@ data/
 ├── sft_baseline_outputs.jsonl
 ├── sft_teacher_edits.jsonl
 ├── sft_train.jsonl
+├── sft_generation_meta.json
 ├── rl_train.jsonl
 ├── dev.jsonl
 ├── eval.jsonl
@@ -175,6 +178,8 @@ data/
 model: Qwen/Qwen3.5-2B
 train_type: lora
 dtype: bf16
+quant_method: bnb
+quant_bits: 4
 max_length: 1024
 lora_rank: 16
 lora_alpha: 32
@@ -186,7 +191,8 @@ gradient_accumulation_steps: 16
 enable_thinking: false
 ```
 
-只对 assistant 回复计算 loss。显存不足时再使用 4-bit。
+只对 assistant 回复计算 loss。不要把 MLX 转换权重直接交给 ms-swift；训练使用
+官方 Transformers checkpoint，并由 ms-swift/BNB 进行 4-bit QLoRA 加载。
 
 MVP 比较：
 
