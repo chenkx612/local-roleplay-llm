@@ -31,84 +31,37 @@ persona + style examples
 
 # 阶段一：数据与基线
 
-**状态：已完成。** 冻结运行目录为
-`data/runs/v4-flash-smoke-20260803-v4/`，总验收文件
-`stage1_acceptance.json` 状态为 `pass`。后续阶段直接使用的核心文件保留在目录根部；
-生成、语义审计、Teacher/Reviewer 和人工修订证据已归档为 `audit_bundle.tar.gz`，需要
-重跑完整验收时先在该目录解压。
+**状态：已完成。** 当前 Smoke 数据位于
+`data/runs/v4-flash-smoke-20260803-v4/`，可直接用于阶段二。已有审计产物保留作为参考，
+但不再增加补充审计或新的阶段一准入条件；只有训练或评测暴露出系统性数据问题时才重建。
 
-该 `pass` 证明原阶段一流程与产物完整，不代表数据已经按新的三目标框架验收。进入阶段二
-前，需补做角色一致性、格式一致性和对话质量的等权审计；如果训练答案没有稳定覆盖下述
-格式契约、主要靠堆叠口头禅制造表面相似，或对话质量不足，应重新修订训练答案并生成
-新的验收记录，不修改已冻结原件。
-
-阶段一的 DeepSeek 调用固定使用显式模型名 `deepseek-v4-flash`，不使用会随服务端
-迁移的旧模型别名。Prompt 生成使用非思考模式以保留采样多样性；SFT 审计使用
-思考模式且 `reasoning_effort=high`。两者均使用 JSON Output，并将模型、模式、
-参数和输入哈希写入元数据。
-
-正式重建前先运行 10 条 SFT 的 `pilot` profile。Pilot 产物与正式数据分别写入
-`data/runs/<run-id>/`，不得覆盖或混入冻结数据。
-
-Smoke 正式流程固定为：
-
-1. 为五类场景各准备 40 个互不重复的本地题目锚点。
-2. V4 Flash 按场景一次生成完整 40 条候选池，再固定切成 SFT/GRPO/Dev/Eval；
-   不把模型生成结果作为后续 API 的去重上下文回传。
-3. 本地执行结构、哈希、精确重复和近似重复检查。
-4. 用 V4 Flash 对全部 200 条冻结 Prompt 做跨 split 语义泄漏审计，并人工逐条复核。
-5. 生成 100 条 Student-baseline-guided Teacher-corrected SFT；独立 Reviewer 最多
-   修正三轮，随后人工检查全部
-   改写项和 20 条抽样最终回答。正式运行实际逐条复核全部 100 条，并通过带原文哈希
-   的修订清单执行 29 条最小人工修订；机器生成版本保持只读，最终训练版本单独冻结。
-6. 生成固定的 30 条能力保持集，再统一冻结 Dev、GRPO、Eval、Retention 共 130 条
-   Base 输出。
-7. 只有总验收报告 `stage1_acceptance.json` 通过，才允许进入阶段二。
+阶段一只解决 MVP 开始训练所必需的问题：数据可用、训练与评测隔离、Teacher 修正结果
+基本可靠。版本治理、全量语义审计、可重放人工修订和生产级恢复能力不属于当前 MVP 范围。
 
 ## 1.1 输入
 
-`persona.json`：
+`persona.json` 必须包含 `name`、`identity`、`personality`、`speech_style`、
+`relationships`、`facts`、`boundaries`，可选 `notes`；除 `name` 外均为自然语言字符串
+数组。它是角色事实的唯一来源，`style_examples.jsonl` 仅提供表达风格，建议准备 10～20
+组代表性对话。
 
-- 必填：`name`、`identity`、`personality`、`speech_style`、`relationships`、`facts`、`boundaries`
-- 可选：`notes`
-- 除 `name` 外均为自然语言字符串数组
-
-`style_examples.jsonl`：10～30 组代表性对话。
-
-```json
-{"user": "你担心我吗？", "assistant": "（轻轻拉住你的袖口，抬眼看了看你）当然担心呀，到家记得告诉我一声好不好。"}
-```
-
-除完整示例外，为每个角色定义一份可机器检查的“格式契约”。当前角色的契约是：
+每个角色还需定义可机器检查的格式契约。当前角色为：
 
 ```text
 （简短的动作、神态或当下反应）口语对白
 ```
 
-- 回复必须以一组全角圆括号动作文本开头，括号闭合后再进入对白。
-- 括号内保持简短、生活化，并与当前语境相符；不写成长篇小说旁白。
-- 正文是自然口语，不使用额外标签、Markdown 舞台说明或多层括号套娃。
-- 格式契约描述结构，`style_examples.jsonl` 描述结构之上的角色语言风格。评测时将格式
-  一致性单独计分，将语言风格模仿计入角色一致性，避免“有括号但不像角色”也被判为
-  角色一致。
-
-格式契约是当前角色的目标样式，不被视为所有角色扮演任务的通用规则。扩展到第二个角色
-时，应从该角色需求与示例中显式定义，而不是默认复制当前契约。
+- 以一组闭合的全角圆括号动作文本开头，再进入自然口语对白。
+- 动作应简短、生活化且符合语境；禁止长篇旁白、额外标签和多层括号。
+- 格式一致性与语言风格分别评价，避免把“格式正确”误判为“像这个角色”。
+- 该契约只适用于当前角色；新角色必须根据其需求和示例重新定义。
 
 ## 1.2 数据准备与切分
 
-1. 校验 `persona.json`，拒绝未知字段、错误类型和空字符串。
-2. 用固定模板渲染 persona system prompt；所有阶段复用同一实现。
-3. 生成五类用户 Prompt：
-   - 日常对话
-   - 背景与关系
-   - 情绪与选择
-   - 回复格式与语言风格
-   - 出戏、冲突与未知事实
-4. 规范化并跨 split 精确去重。
-5. 在调用 Student 和 Teacher 前固定所有 split。
-
-`persona.json` 是角色事实的唯一来源；`style_examples.jsonl` 只提供表达风格。
+1. 校验 persona 的必填字段和类型，并用统一模板渲染各阶段复用的 system prompt。
+2. 为日常对话、背景与关系、情绪与选择、格式与风格、冲突与未知事实五类场景分别准备本地题目锚点。
+3. 一次性生成并切分 Prompt，在 Student 和 Teacher 处理前写定各 split。
+4. 本地检查结构和规范化后的精确重复；人工抽查明显的跨 split 语义重复。
 
 | 数据 | Smoke | MVP |
 |---|---:|---:|
@@ -117,135 +70,57 @@ Smoke 正式流程固定为：
 | GRPO Prompt | 30 | 100 |
 | Dev Prompt | 20 | 50 |
 | Eval Prompt | 50 | 100 |
-| Retention Prompt | 30 | 30 |
 
-Pilot 固定为 10 条 SFT Prompt，不生成其他 split，也不进入训练集。
-
-隔离规则：
-
-- SFT Train Prompt 只用于 SFT。
-- Dev 只用于选配置。
-- GRPO Prompt 只用于 GRPO。
-- Eval 只用于最终评测。
-- Dev、GRPO、Eval 的 Prompt 和回答不得进入 SFT。
+SFT、Dev、GRPO、Eval 各自只用于训练、选配置、强化学习和最终评测；Dev、GRPO、Eval
+的 Prompt 与回答不得进入 SFT。近似重复模型审计只在人工抽查发现系统性泄漏时启用，
+不作为默认步骤。
 
 ## 1.3 Student-baseline-guided Teacher-corrected SFT
 
-这里采用的是“Student 输出条件化的 Teacher 纠错 SFT”：Student 先生成 baseline，
-Teacher 根据 baseline 暴露的具体缺陷进行最小修改，Reviewer 再验收最终答案。
-
-这不等同于本项目语境中的 **Student-aware SFT**。后者要求 Teacher 提供多个候选答案
-或不同形式的帮助，由 Student 根据自身状态自主选择更有帮助的答案作为 SFT 目标；
-当前阶段没有候选生成、Student 选择或选择信号，因此不使用该名称。
-
-先生成 Student Baseline：
+核心链路：
 
 ```text
-persona + train prompt
-→ Qwen3.5-2B
-→ baseline answer
+persona + train prompt → Student baseline
+persona + style examples + train prompt + baseline → Teacher 最小纠错
 ```
 
-Teacher 输入：
+这是“Student 输出条件化的 Teacher 纠错 SFT”，不是由 Student 从多个 Teacher 候选中
+自主选择目标的 Student-aware SFT。该命名区分应保留，避免夸大方法能力。
 
-```text
-persona + style examples + train prompt + baseline answer
-```
+Teacher 遵循以下原则：
 
-Teacher 负责：
-
-- 分别评价角色一致性、格式一致性和对话质量，三项不互相替代。
-- 角色一致性同时检查身份、性格、关系、事实、边界与语言风格；不为了展示 persona 而
-  生硬复述设定，也不以口头禅数量代替风格判断。
-- 标记具体问题。
-- 合格回答原样保留。
-- 不合格回答做最小充分修改。
+- 三项目标分别评分，任何一项都不能被其他项抵消。
+- 角色一致性覆盖身份、性格、关系、事实、边界和整体语言风格，不能用复述设定或堆叠
+  口头禅代替。
+- 明确记录问题；合格回答原样保留，不合格回答仅做充分的最小修改。
 - 不引入 persona 和当前用户消息之外的事实或共同经历。
 - 未知信息应承认不知道、记不清或向用户确认。
 
-审计记录：
+每个 SFT Prompt 对应一条训练样本；API 失败或输出无效时重试补齐。训练文件只保留
+`user` 和最终回答。导出前用确定性规则检查结构、目标格式、空回答、截断和明显复读，
+然后人工抽查 10～20 条，确认没有系统性的人设、风格或对话质量问题。
 
-```json
-{
-  "user": "...",
-  "baseline_assistant": "...",
-  "checks": {
-    "format_contract": true
-  },
-  "scores": {
-    "role_consistency": {
-      "overall": 0,
-      "identity_facts_boundaries": 0,
-      "personality_relationships": 0,
-      "language_style": 0
-    },
-    "format_consistency": 0,
-    "dialogue_quality": 0
-  },
-  "issues": ["..."],
-  "decision": "keep | light_rewrite | rewrite",
-  "improved_assistant": "..."
-}
-```
+Teacher 评分和问题说明可以保留用于诊断，但 Reviewer 多轮修正、全量人工复核、原文哈希
+和可重放修订清单均延后。抽查发现个别问题时直接修正；发现系统性问题时才调整 Prompt
+并重新生成受影响的数据。
 
-评分范围为 0～10。每个 SFT Train Prompt 生成一条 SFT 训练样本；失败项重试补齐，
-不按 `decision` 筛选。训练集只使用 `user` 和最终 assistant 回答，审计记录单独保存。
-其中 `checks.format_contract` 记录确定性规则结果，`format_consistency` 记录 Judge 对格式
-实现质量的评分。`role_consistency.language_style` 评价整体风格模仿质量，不得仅按口头禅
-数量打分。三个主目标均为 0～10 分，总分取等权宏平均；角色一致性的三个子分只用于形成
-该维度的可解释评分，默认等权形成 `role_consistency.overall`，不作为额外权重重复计入
-三目标总分。
-若人工全量复核发现漏判，必须保留 `sft_train_generated.jsonl`，并用
-`sft_human_edits.json` 中的原文哈希、修订文本和原因生成最终 `sft_train.jsonl`；验收器
-会重放清单并拒绝未记录的改动。
+## 1.4 基线与准入
 
-## 1.4 冻结基线
+训练前生成 Dev 和 Eval 的 Base 输出，供配置选择和最终对比使用。Base、SFT、GRPO
+尽量使用相同的模型 checkpoint、persona prompt、chat template 和生成参数；如果推理后端
+或量化方式不同，记录差异并在结论中说明。
 
-训练前保存 Dev、GRPO 和 Eval 的 Base 输出。Base、SFT、GRPO 必须使用相同的：
+阶段一满足以下条件即可进入 SFT：
 
-- 基础 checkpoint 和 revision
-- 精度或量化策略
-- 推理后端和 chat template
-- persona prompt
-- 生成参数
+- 各 split 数量正确且不存在规范化后的精确重复。
+- Dev、GRPO 和 Eval 数据没有进入 SFT。
+- SFT 样本通过基础结构和输出质量检查。
+- 人工抽查未发现系统性质量问题。
+- Dev 和 Eval Base 输出完整、未截断且无明显生成退化。
 
-记录上述元数据。Eval Baseline 不参与训练或 Teacher 改写。
-
-能力保持集覆盖指令遵循、结构化输出、语言、推理、稳定知识、普通对话与安全建议；
-Base/SFT/GRPO 对它推理时仍使用同一个 persona system prompt，以检验部署形态下的
-通用能力保持。Smoke 的统一 Base bundle 应包含 Dev 20 + GRPO 30 + Eval 50 +
-Retention 30，共 130 条，并支持断点续跑。
-
-阶段产物：
-
-```text
-data/
-├── persona.json
-├── style_examples.jsonl
-├── sft_train_prompts.jsonl
-├── sft_baseline_outputs.jsonl
-├── sft_teacher_edits.jsonl
-├── sft_teacher_reviews.jsonl
-├── sft_train_generated.jsonl
-├── sft_human_edits.json
-├── sft_train.jsonl
-├── sft_generation_meta.json
-├── rl_train.jsonl
-├── dev.jsonl
-├── eval.jsonl
-├── retention_eval.jsonl
-├── retention_meta.json
-├── prompt_generation_meta.json
-├── prompt_validation.json
-├── prompt_semantic_audit.json
-├── prompt_human_audit.json
-├── sft_validation.json
-├── sft_human_audit.json
-├── three_axis_audit.json
-├── baseline_outputs.jsonl
-├── baseline_generation_meta.json
-└── stage1_acceptance.json
-```
+保留输入与 split、最终 SFT 训练文件、Dev/Eval Base 输出以及一份简要检查结果即可。
+不要求审计归档、双重验收文件或完整断点续跑。能力保持集放到 MVP 最终评测，不阻塞
+端到端 Smoke。
 
 # 阶段二：LoRA SFT
 
@@ -294,7 +169,7 @@ MVP 比较：
 - 格式契约通过率显著提高，且没有通过空洞、重复的括号动作投机。
 - 对话质量提高，无明显复读、模板化、统一拒答或回复过短。
 - 三目标等权宏平均提高，且任一目标均无明显下降。
-- 能力保持集无明显下降。
+- MVP 阶段的能力保持集无明显下降。
 
 Smoke 只验收流程和产物。MVP 只有在 SFT 优于 Base 且无明显能力回归时才进入 GRPO。
 
@@ -413,22 +288,16 @@ C. GRPO LoRA + Persona
 ## Milestone 1：Smoke 数据
 
 - 完成 Persona 校验和 Prompt 渲染。
-- 生成、去重并切分 Prompt。
+- 生成、精确去重并切分 Prompt，人工抽查跨 split 语义重复。
 - 生成 Student Baseline。
-- Teacher 评分并最小改写。
-- 导出 SFT 和冻结基线。
-
-## Milestone 1.5：目标校准审计
-
-- 固化角色一致性、格式一致性和对话质量的等权 Judge rubric，并定义角色一致性中的
-  Style Fidelity 子项。
-- 对冻结的 SFT 训练答案、Dev 和 Eval 基线补做三目标审计。
-- 将结果写入新的 `three_axis_audit.json`，不覆盖阶段一的原验收文件。
-- 审计通过后进入 SFT；不通过则用可追溯修订清单生成新版训练数据并重新验收。
+- Teacher 单轮评分并最小改写。
+- 完成基础自动检查和 10～20 条人工抽查。
+- 导出 SFT 数据和 Dev/Eval Base 输出后立即进入训练。
 
 ## Milestone 2：端到端 Smoke
 
 - 完成 SFT、GRPO、推理和评测。
+- 固化角色一致性、格式一致性和对话质量的等权 Judge rubric。
 - 在 SFT、GRPO 和最终评测中统一复用三目标 Judge rubric 与格式契约检查。
 - 检查日志与产物完整性。
 
