@@ -10,10 +10,8 @@ PLAN.md §1.2:
     4. 语言风格
     5. 出戏、冲突与未知事实
 
-Two generation profiles are supported:
-
-* ``smoke``  - 100 SFT /  30 GRPO / 20 dev /  50 eval
-* ``mvp``    - 300 SFT / 100 GRPO / 50 dev / 100 eval
+The MVP target size is intentionally small: 100 SFT / 30 GRPO / 20 dev /
+50 eval prompts.
 
 All records contain only the raw user prompt. Student and Teacher answers are
 created in later stages, after these mutually isolated splits have been frozen.
@@ -57,10 +55,7 @@ _load_dotenv()
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-chat"
 
-PROFILES: dict[str, dict[str, int]] = {
-    "smoke": {"sft": 100, "grpo": 30, "dev": 20, "eval": 50},
-    "mvp": {"sft": 300, "grpo": 100, "dev": 50, "eval": 100},
-}
+MVP_TARGETS: dict[str, int] = {"sft": 100, "grpo": 30, "dev": 20, "eval": 50}
 
 SCENARIOS: tuple[dict[str, str], ...] = (
     {
@@ -434,17 +429,12 @@ def build_deepseek_client(api_key: str | None = None, base_url: str | None = Non
 def generate(
     persona_path: Path,
     examples_path: Path,
-    profile: str,
     output_dir: Path,
     client: OpenAI | None = None,
     model: str = DEEPSEEK_MODEL,
     base_url: str | None = None,
     api_key: str | None = None,
 ) -> dict[str, Path]:
-    if profile not in PROFILES:
-        raise ValueError(f"未知 profile：{profile}（可选 {sorted(PROFILES)}）")
-    targets = PROFILES[profile]
-
     persona = load_persona(persona_path)
     persona_text = render_persona_prompt(persona)
     examples = load_examples(examples_path)
@@ -458,7 +448,7 @@ def generate(
     if client is None:
         client = build_deepseek_client(api_key=api_key, base_url=base_url)
 
-    print(f"=== 开始生成（profile={profile}）角色：{persona['name']} ===")
+    print(f"=== 开始生成 MVP Prompt，角色：{persona['name']} ===")
 
     # Generate and validate every split before touching output paths. The shared
     # set enforces both within-split and cross-split exact deduplication.
@@ -466,7 +456,7 @@ def generate(
     sft_prompts = _generate_all_scenarios(
         client,
         model,
-        targets["sft"],
+        MVP_TARGETS["sft"],
         context,
         max_tokens=1536,
         label="SFT",
@@ -475,7 +465,7 @@ def generate(
     grpo_prompts = _generate_all_scenarios(
         client,
         model,
-        targets["grpo"],
+        MVP_TARGETS["grpo"],
         context,
         max_tokens=1536,
         label="GRPO",
@@ -484,7 +474,7 @@ def generate(
     dev_prompts = _generate_all_scenarios(
         client,
         model,
-        targets["dev"],
+        MVP_TARGETS["dev"],
         context,
         max_tokens=1536,
         label="DEV",
@@ -493,7 +483,7 @@ def generate(
     eval_prompts = _generate_all_scenarios(
         client,
         model,
-        targets["eval"],
+        MVP_TARGETS["eval"],
         context,
         max_tokens=1536,
         label="EVAL",
@@ -507,10 +497,10 @@ def generate(
         "EVAL": len(eval_prompts),
     }
     expected = {
-        "SFT": targets["sft"],
-        "GRPO": targets["grpo"],
-        "DEV": targets["dev"],
-        "EVAL": targets["eval"],
+        "SFT": MVP_TARGETS["sft"],
+        "GRPO": MVP_TARGETS["grpo"],
+        "DEV": MVP_TARGETS["dev"],
+        "EVAL": MVP_TARGETS["eval"],
     }
     shortfalls = [
         f"{name}: {actual[name]}/{expected[name]}"
@@ -551,12 +541,6 @@ def main() -> None:
         description="生成并冻结 SFT/GRPO/Dev/Eval Prompt split（DeepSeek API）"
     )
     parser.add_argument(
-        "--profile",
-        choices=sorted(PROFILES),
-        default="smoke",
-        help="生成档位：smoke（烟测）或 mvp（正式）",
-    )
-    parser.add_argument(
         "--persona",
         type=Path,
         default=Path("data/persona.json"),
@@ -588,7 +572,6 @@ def main() -> None:
         generate(
             persona_path=args.persona,
             examples_path=examples_path,
-            profile=args.profile,
             output_dir=args.output_dir,
             api_key=args.api_key,
             base_url=args.base_url,

@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from roleplay.datagen import (
     MAX_CONSECUTIVE_EMPTY,
-    PROFILES,
+    MVP_TARGETS,
     SCENARIOS,
     GenerationShortfallError,
     _render_examples,
@@ -48,13 +48,9 @@ class ScenarioDistributionTests(unittest.TestCase):
             self.assertEqual(set(distribution), {scenario["id"] for scenario in SCENARIOS})
             self.assertLessEqual(max(distribution.values()) - min(distribution.values()), 1)
 
-    def test_profile_targets_match_plan(self):
-        self.assertEqual(
-            PROFILES["smoke"], {"sft": 100, "grpo": 30, "dev": 20, "eval": 50}
-        )
-        self.assertEqual(
-            PROFILES["mvp"], {"sft": 300, "grpo": 100, "dev": 50, "eval": 100}
-        )
+    def test_mvp_targets_match_plan(self):
+        expected = {"sft": 100, "grpo": 30, "dev": 20, "eval": 50}
+        self.assertEqual(MVP_TARGETS, expected)
 
 
 class ParsePromptTests(unittest.TestCase):
@@ -243,12 +239,13 @@ class GenerateEndToEndTests(unittest.TestCase):
         return generate(
             persona_path=self.persona_path,
             examples_path=self.examples_path,
-            profile="smoke",
             output_dir=self.tmpdir,
-            client=_FakeClient(responses if responses is not None else self._responses()),
+            client=_FakeClient(
+                responses if responses is not None else self._responses()
+            ),
         )
 
-    def test_smoke_writes_four_isolated_prompt_files(self):
+    def test_writes_four_isolated_prompt_files(self):
         outputs = self._generate()
         self.assertEqual(set(outputs), {"sft", "rl", "dev", "eval"})
 
@@ -307,16 +304,6 @@ class GenerateEndToEndTests(unittest.TestCase):
         for path in paths:
             self.assertEqual(path.read_text(encoding="utf-8"), marker)
             self.assertFalse(path.with_name(path.name + ".tmp").exists())
-
-    def test_unknown_profile_raises(self):
-        with self.assertRaises(ValueError):
-            generate(
-                self.persona_path,
-                self.examples_path,
-                "invalid",
-                self.tmpdir,
-                client=_FakeClient([]),
-            )
 
 
 if __name__ == "__main__":
