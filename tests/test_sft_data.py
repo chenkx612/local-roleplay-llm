@@ -45,6 +45,7 @@ def audit_json(
                 "persona": 9,
                 "grounding": 8,
                 "style": 9,
+                "format": 9,
                 "quality": 8,
             },
             "issues": [],
@@ -91,6 +92,9 @@ class TeacherAuditTests(unittest.TestCase):
         self.assertIn("不知道", prompt)
         self.assertIn("预设", prompt)
         self.assertIn("家庭成员", prompt)
+        self.assertIn("格式契约 format", prompt)
+        self.assertIn("全角括号", prompt)
+        self.assertIn('"format":0', prompt)
 
     def test_parses_keep_audit_and_adds_context_fields(self):
         audit = parse_teacher_audit(audit_json("原回答"), "问题", "原回答")
@@ -127,10 +131,31 @@ class TeacherAuditTests(unittest.TestCase):
                 load_style_examples(path)
 
             path.write_text(
-                "".join('{"user":"u","assistant":"a"}\n' for _ in range(9)),
+                "".join(
+                    json.dumps(
+                        {"user": f"u{i}", "assistant": f"（点头）a{i}"},
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                    for i in range(9)
+                ),
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(ValueError, "10～30"):
+            with self.assertRaisesRegex(ValueError, "10～20"):
+                load_style_examples(path)
+
+            path.write_text(
+                "".join(
+                    json.dumps(
+                        {"user": f"u{i}", "assistant": f"（点头）a{i}"},
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                    for i in range(21)
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "10～20"):
                 load_style_examples(path)
 
 
@@ -146,7 +171,10 @@ class StudentAwarePipelineTests(unittest.TestCase):
         self.examples_path.write_text(
             "".join(
                 json.dumps(
-                    {"user": f"示例问题{i}", "assistant": f"示例回答{i}"},
+                    {
+                        "user": f"示例问题{i}",
+                        "assistant": f"（点头）示例回答{i}",
+                    },
                     ensure_ascii=False,
                 )
                 + "\n"
@@ -294,7 +322,7 @@ class StudentAwarePipelineTests(unittest.TestCase):
             _FakeClient([(audit_json("回答一"), "stop")]),
         )
         with self.examples_path.open("a", encoding="utf-8") as file:
-            file.write('{"user":"新问题","assistant":"新回答"}\n')
+            file.write('{"user":"新问题","assistant":"（点头）新回答"}\n')
         with self.assertRaisesRegex(StudentAwareSFTError, "输入或生成配置"):
             self.run_pipeline(_FakeClient([]), _FakeClient([]))
 

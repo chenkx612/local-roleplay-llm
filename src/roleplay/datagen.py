@@ -20,6 +20,7 @@ created in later stages, after these mutually isolated splits have been frozen.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -27,12 +28,13 @@ import sys
 import time
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
 
-from .persona import load_persona, render_persona_prompt
+from .persona import PersonaValidationError, load_persona, render_persona_prompt
 
 
 def _load_dotenv() -> None:
@@ -56,6 +58,9 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-chat"
 
 MVP_TARGETS: dict[str, int] = {"sft": 100, "grpo": 30, "dev": 20, "eval": 50}
+MIN_STYLE_EXAMPLES = 10
+MAX_STYLE_EXAMPLES = 20
+STYLE_RESPONSE_PATTERN = re.compile(r"^（[^（）\r\n]+）[^（）\r\n]+$")
 
 SCENARIOS: tuple[dict[str, str], ...] = (
     {
@@ -208,16 +213,45 @@ def _batch_sizes(total: int) -> list[int]:
 
 
 def load_examples(path: Path) -> list[dict[str, str]]:
-    if not path.exists():
-        return []
+    """Load and strictly validate the style examples required by PLAN.md."""
     examples: list[dict[str, str]] = []
     with path.open(encoding="utf-8") as file:
-        for line in file:
+        for line_no, line in enumerate(file, 1):
             if not line.strip():
                 continue
-            item = json.loads(line)
-            if isinstance(item.get("user"), str) and isinstance(item.get("assistant"), str):
-                examples.append({"user": item["user"], "assistant": item["assistant"]})
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"style_examples.jsonl 第 {line_no} 行不是合法 JSON: {exc.msg}"
+                ) from exc
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"user", "assistant"}
+                or not isinstance(item["user"], str)
+                or not item["user"].strip()
+                or not isinstance(item["assistant"], str)
+                or not item["assistant"].strip()
+            ):
+                raise ValueError(
+                    f"style_examples.jsonl 第 {line_no} 行必须仅含非空 "
+                    "user 和 assistant"
+                )
+            if not STYLE_RESPONSE_PATTERN.fullmatch(item["assistant"]):
+                raise ValueError(
+                    f"style_examples.jsonl 第 {line_no} 行 assistant 必须遵循"
+                    "“（简短动作或神态）口语对白”格式，且不得使用多层括号或换行"
+                )
+            examples.append(item)
+    if not MIN_STYLE_EXAMPLES <= len(examples) <= MAX_STYLE_EXAMPLES:
+        raise ValueError(
+            "style_examples.jsonl 必须包含 "
+            f"{MIN_STYLE_EXAMPLES}～{MAX_STYLE_EXAMPLES} 条有效对话，"
+            f"实际 {len(examples)} 条"
+        )
+    users = [item["user"] for item in examples]
+    if len(users) != len(set(users)):
+        raise ValueError("style_examples.jsonl 包含精确重复的 user")
     return examples
 
 
@@ -373,21 +407,26 @@ def write_jsonl(records: list[Any], path: Path) -> None:
         raise
 
 
-def write_jsonl_bundle(records_by_path: dict[Path, list[Any]]) -> None:
-    """Stage all JSONL files and roll back the bundle if publication fails."""
+def _jsonl_bytes(records: list[Any]) -> bytes:
+    text = "".join(
+        json.dumps(record, ensure_ascii=False) + "\n" for record in records
+    )
+    return text.encode("utf-8")
+
+
+def write_file_bundle(contents_by_path: dict[Path, bytes]) -> None:
+    """Atomically publish a group of byte-for-byte files with rollback."""
     temp_paths: dict[Path, Path] = {}
     backup_paths: dict[Path, Path] = {}
     published: set[Path] = set()
     try:
-        for path, records in records_by_path.items():
+        for path, content in contents_by_path.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = path.with_name(path.name + ".tmp")
             temp_paths[path] = tmp_path
-            with tmp_path.open("w", encoding="utf-8") as file:
-                for record in records:
-                    file.write(json.dumps(record, ensure_ascii=False) + "\n")
+            tmp_path.write_bytes(content)
 
-        for path in records_by_path:
+        for path in contents_by_path:
             backup_path = path.with_name(path.name + ".bak")
             if backup_path.exists():
                 raise FileExistsError(f"检测到未清理的备份文件：{backup_path}")
@@ -412,8 +451,69 @@ def write_jsonl_bundle(records_by_path: dict[Path, list[Any]]) -> None:
             backup_path.unlink()
     finally:
         for tmp_path in temp_paths.values():
-            if tmp_path.exists():
-                tmp_path.unlink()
+            tmp_path.unlink(missing_ok=True)
+
+
+def write_jsonl_bundle(records_by_path: dict[Path, list[Any]]) -> None:
+    """Stage all JSONL files and roll back the bundle if publication fails."""
+    write_file_bundle(
+        {path: _jsonl_bytes(records) for path, records in records_by_path.items()}
+    )
+
+
+def _input_snapshot_bundle(
+    output_dir: Path,
+    persona_snapshot: bytes,
+    examples_snapshot: bytes,
+    system_prompt_snapshot: bytes,
+) -> tuple[dict[Path, bytes], dict[str, Path]]:
+    snapshot_dir = output_dir / "inputs"
+    paths = {
+        "persona": snapshot_dir / "persona.json",
+        "style_examples": snapshot_dir / "style_examples.jsonl",
+        "system_prompt": output_dir / "system_prompt.txt",
+        "manifest": output_dir / "input_manifest.json",
+    }
+    manifest = {
+        "persona": {
+            "file": str(paths["persona"].relative_to(output_dir)),
+            "sha256": hashlib.sha256(persona_snapshot).hexdigest(),
+        },
+        "style_examples": {
+            "file": str(paths["style_examples"].relative_to(output_dir)),
+            "sha256": hashlib.sha256(examples_snapshot).hexdigest(),
+        },
+        "system_prompt": {
+            "file": str(paths["system_prompt"].relative_to(output_dir)),
+            "sha256": hashlib.sha256(system_prompt_snapshot).hexdigest(),
+        },
+    }
+    contents = {
+        paths["persona"]: persona_snapshot,
+        paths["style_examples"]: examples_snapshot,
+        paths["system_prompt"]: system_prompt_snapshot,
+        paths["manifest"]: (
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
+        ).encode("utf-8"),
+    }
+    return contents, paths
+
+
+def save_input_snapshot(
+    persona_path: Path, examples_path: Path, output_dir: Path
+) -> dict[str, Path]:
+    """Validate and freeze the §1.1 inputs without making an API call."""
+    persona = load_persona(persona_path)
+    system_prompt = render_persona_prompt(persona)
+    load_examples(examples_path)
+    contents, paths = _input_snapshot_bundle(
+        output_dir,
+        persona_path.read_bytes(),
+        examples_path.read_bytes(),
+        (system_prompt + "\n").encode("utf-8"),
+    )
+    write_file_bundle(contents)
+    return paths
 
 
 def build_deepseek_client(api_key: str | None = None, base_url: str | None = None) -> OpenAI:
@@ -438,6 +538,9 @@ def generate(
     persona = load_persona(persona_path)
     persona_text = render_persona_prompt(persona)
     examples = load_examples(examples_path)
+    persona_snapshot = persona_path.read_bytes()
+    examples_snapshot = examples_path.read_bytes()
+    system_prompt_snapshot = (persona_text + "\n").encode("utf-8")
     examples_text = _render_examples(examples)
     context = GenerationContext(
         persona_text=persona_text,
@@ -518,13 +621,20 @@ def generate(
     rl_path = output_dir / "rl_train.jsonl"
     dev_path = output_dir / "dev.jsonl"
     eval_path = output_dir / "eval.jsonl"
+    snapshot_contents, snapshot_paths = _input_snapshot_bundle(
+        output_dir,
+        persona_snapshot,
+        examples_snapshot,
+        system_prompt_snapshot,
+    )
 
-    write_jsonl_bundle(
+    write_file_bundle(
         {
-            sft_path: format_prompt_records(sft_prompts),
-            rl_path: format_prompt_records(grpo_prompts),
-            dev_path: format_prompt_records(dev_prompts),
-            eval_path: format_prompt_records(eval_prompts),
+            sft_path: _jsonl_bytes(format_prompt_records(sft_prompts)),
+            rl_path: _jsonl_bytes(format_prompt_records(grpo_prompts)),
+            dev_path: _jsonl_bytes(format_prompt_records(dev_prompts)),
+            eval_path: _jsonl_bytes(format_prompt_records(eval_prompts)),
+            **snapshot_contents,
         }
     )
 
@@ -533,6 +643,8 @@ def generate(
     print(f"GRPO Prompt：{len(grpo_prompts)} 条 -> {rl_path}")
     print(f"Dev Prompt ：{len(dev_prompts)} 条 -> {dev_path}")
     print(f"Eval Prompt：{len(eval_prompts)} 条 -> {eval_path}")
+    print(f"输入快照   ：{snapshot_paths['persona'].parent}")
+    print(f"System Prompt：{snapshot_paths['system_prompt']}")
     return {"sft": sft_path, "rl": rl_path, "dev": dev_path, "eval": eval_path}
 
 
@@ -555,29 +667,42 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data"),
-        help="输出 JSONL 目录",
+        default=None,
+        help="运行产物目录（默认 data/runs/<timestamp>）",
     )
     parser.add_argument(
         "--api-key", default=None, help="DeepSeek API Key（默认读 DEEPSEEK_API_KEY）"
     )
     parser.add_argument("--base-url", default=None, help="自定义 API base URL")
     parser.add_argument("--model", default=DEEPSEEK_MODEL, help="DeepSeek 模型名")
+    parser.add_argument(
+        "--snapshot-only",
+        action="store_true",
+        help="仅校验并保存输入快照与 system prompt，不调用 API",
+    )
     args = parser.parse_args()
 
     examples_path = args.style_examples or (
         args.persona.parent / "style_examples.jsonl"
     )
+    output_dir = args.output_dir or (
+        Path("data/runs") / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    )
     try:
+        if args.snapshot_only:
+            paths = save_input_snapshot(args.persona, examples_path, output_dir)
+            print(f"输入校验通过，快照已保存：{paths['persona'].parent}")
+            print(f"System Prompt：{paths['system_prompt']}")
+            return
         generate(
             persona_path=args.persona,
             examples_path=examples_path,
-            output_dir=args.output_dir,
+            output_dir=output_dir,
             api_key=args.api_key,
             base_url=args.base_url,
             model=args.model,
         )
-    except GenerationShortfallError as exc:
+    except (OSError, ValueError, PersonaValidationError, GenerationShortfallError) as exc:
         raise SystemExit(f"生成失败：{exc}") from exc
 
 

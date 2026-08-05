@@ -30,6 +30,11 @@ class PersonaValidationTests(unittest.TestCase):
         self.assertIs(validate_persona(data), data)
         self.assertIn("-  原始措辞 ", render_persona_prompt(data))
 
+    def test_rendered_prompt_contains_shared_format_contract(self):
+        prompt = render_persona_prompt(persona())
+        self.assertIn("全角括号", prompt)
+        self.assertIn("禁止长篇旁白、额外标签和多层括号", prompt)
+
     def test_rejects_unknown_field(self):
         with self.assertRaisesRegex(PersonaValidationError, "未知字段"):
             validate_persona(persona(extra="no"))

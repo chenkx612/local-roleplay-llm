@@ -24,6 +24,7 @@ from roleplay.datagen import (
     load_examples,
     normalize_prompt,
     parse_prompts,
+    save_input_snapshot,
     write_jsonl,
     write_jsonl_bundle,
 )
@@ -172,13 +173,93 @@ class JsonlTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "style_examples.jsonl"
             path.write_text(
-                '{"user":"a","assistant":"b"}\n\n{"user":"c","assistant":"d"}\n',
+                "\n".join(
+                    json.dumps(
+                        {"user": f"u{i}", "assistant": f"（点头）a{i}"}
+                    )
+                    for i in range(10)
+                )
+                + "\n\n",
                 encoding="utf-8",
             )
-            self.assertEqual(
-                load_examples(path),
-                [{"user": "a", "assistant": "b"}, {"user": "c", "assistant": "d"}],
+            self.assertEqual(len(load_examples(path)), 10)
+
+    def test_load_examples_enforces_plan_maximum(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "style_examples.jsonl"
+            path.write_text(
+                "".join(
+                    json.dumps(
+                        {"user": f"u{i}", "assistant": f"（点头）a{i}"}
+                    )
+                    + "\n"
+                    for i in range(21)
+                ),
+                encoding="utf-8",
             )
+            with self.assertRaisesRegex(ValueError, "10～20"):
+                load_examples(path)
+
+    def test_save_input_snapshot_validates_and_copies_exact_inputs(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            persona_path = root / "persona.json"
+            persona_path.write_text(
+                json.dumps(PERSONA, ensure_ascii=False), encoding="utf-8"
+            )
+            examples_path = root / "style_examples.jsonl"
+            examples_path.write_text(
+                "".join(
+                    json.dumps(
+                        {"user": f"u{i}", "assistant": f"（点头）a{i}"},
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                    for i in range(10)
+                ),
+                encoding="utf-8",
+            )
+            output_dir = root / "run"
+            paths = save_input_snapshot(persona_path, examples_path, output_dir)
+
+            self.assertEqual(paths["persona"].read_bytes(), persona_path.read_bytes())
+            self.assertEqual(
+                paths["style_examples"].read_bytes(), examples_path.read_bytes()
+            )
+            self.assertIn(
+                "全角括号", paths["system_prompt"].read_text(encoding="utf-8")
+            )
+            self.assertTrue(paths["manifest"].is_file())
+
+    def test_load_examples_rejects_invalid_format_and_duplicate_users(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "style_examples.jsonl"
+            records = [
+                {"user": f"u{i}", "assistant": f"（点头）a{i}"}
+                for i in range(10)
+            ]
+            records[3]["assistant"] = "没有动作括号"
+            path.write_text(
+                "".join(
+                    json.dumps(record, ensure_ascii=False) + "\n"
+                    for record in records
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "必须遵循"):
+                load_examples(path)
+
+            records[3]["assistant"] = "（点头）恢复格式"
+            records[3]["user"] = records[2]["user"]
+            path.write_text(
+                "".join(
+                    json.dumps(record, ensure_ascii=False) + "\n"
+                    for record in records
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "重复"):
+                load_examples(path)
 
 
 class _FakeCompletions:
@@ -214,10 +295,17 @@ class GenerateEndToEndTests(unittest.TestCase):
         self.persona_path.write_text(json.dumps(PERSONA), encoding="utf-8")
         self.examples_path = self.tmpdir / "style_examples.jsonl"
         self.examples_path.write_text(
-            json.dumps(
-                {"user": "示例问题", "assistant": "示例回答"}, ensure_ascii=False
-            )
-            + "\n",
+            "".join(
+                json.dumps(
+                    {
+                        "user": f"示例问题{i}",
+                        "assistant": f"（点头）示例回答{i}",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+                for i in range(10)
+            ),
             encoding="utf-8",
         )
         self.sleep_patcher = patch("roleplay.datagen.time.sleep")
@@ -261,6 +349,25 @@ class GenerateEndToEndTests(unittest.TestCase):
             self.assertEqual(len(keys), expected[name])
             self.assertTrue(all_keys.isdisjoint(keys))
             all_keys.update(keys)
+
+        self.assertEqual(
+            (self.tmpdir / "inputs/persona.json").read_bytes(),
+            self.persona_path.read_bytes(),
+        )
+        self.assertEqual(
+            (self.tmpdir / "inputs/style_examples.jsonl").read_bytes(),
+            self.examples_path.read_bytes(),
+        )
+        system_prompt = (self.tmpdir / "system_prompt.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("全角括号", system_prompt)
+        manifest = json.loads(
+            (self.tmpdir / "input_manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            set(manifest), {"persona", "style_examples", "system_prompt"}
+        )
 
     def test_duplicate_only_batch_is_retried_and_backfilled(self):
         duplicate = json.dumps({"prompts": ["same"] * 5})

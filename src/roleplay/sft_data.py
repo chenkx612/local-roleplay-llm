@@ -23,6 +23,7 @@ from .datagen import (
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
     _render_examples,
+    load_examples as load_style_examples,
     write_jsonl_bundle,
 )
 from .inference import (
@@ -47,10 +48,10 @@ DEFAULT_STUDENT_REVISION = "674aaa7240b91e8012fcad5d791b7dfe5ba90207"
 MAX_TEACHER_ATTEMPTS = 3
 TEACHER_MAX_TOKENS = 1536
 TEACHER_TEMPERATURE = 0.2
-TEACHER_PROMPT_VERSION = 2
+TEACHER_PROMPT_VERSION = 3
 METADATA_SCHEMA_VERSION = 1
 DECISIONS = {"keep", "light_rewrite", "rewrite"}
-SCORE_NAMES = {"persona", "grounding", "style", "quality"}
+SCORE_NAMES = {"persona", "grounding", "style", "format", "quality"}
 AUDIT_FIELDS = {
     "user",
     "baseline_assistant",
@@ -95,39 +96,6 @@ def load_prompts(path: Path) -> list[str]:
     return prompts
 
 
-def load_style_examples(path: Path) -> list[dict[str, str]]:
-    """Load and strictly validate the 10-30 style examples required by the plan."""
-    examples: list[dict[str, str]] = []
-    with path.open(encoding="utf-8") as file:
-        for line_no, line in enumerate(file, 1):
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"style_examples.jsonl 第 {line_no} 行不是合法 JSON: {exc.msg}"
-                ) from exc
-            if (
-                not isinstance(record, dict)
-                or set(record) != {"user", "assistant"}
-                or not isinstance(record["user"], str)
-                or not record["user"].strip()
-                or not isinstance(record["assistant"], str)
-                or not record["assistant"].strip()
-            ):
-                raise ValueError(
-                    f"style_examples.jsonl 第 {line_no} 行必须仅含非空 "
-                    "user 和 assistant"
-                )
-            examples.append(record)
-    if not 10 <= len(examples) <= 30:
-        raise ValueError(
-            f"style_examples.jsonl 必须包含 10～30 条有效对话，实际 {len(examples)} 条"
-        )
-    return examples
-
-
 def build_teacher_system(persona_text: str, examples_text: str) -> str:
     """Build the fixed Teacher instructions for auditing one Student answer."""
     return (
@@ -145,13 +113,15 @@ def build_teacher_system(persona_text: str, examples_text: str) -> str:
         "5. 对 persona 未说明的信息必须承认不知道、记不清，或自然地向用户确认。\n\n"
         "【审计规则】\n"
         "分别按 0～10 的整数评价角色一致性 persona、事实依据 grounding、"
-        "表达风格 style 和对话质量 quality，并具体列出 issues。\n"
+        "表达风格 style、格式契约 format 和对话质量 quality，并具体列出 issues。\n"
+        "format 必须检查回答是否以一组闭合的全角括号描述简短动作或神态，"
+        "随后进入口语对白，且没有长篇旁白、额外标签或多层括号。\n"
         "回答完全合格时 decision=keep，improved_assistant 必须逐字保留 baseline。\n"
         "只需少量修正时 decision=light_rewrite；存在明显问题时 decision=rewrite。\n"
         "改写必须是最小充分修改，保持自然、相关、可继续对话，不要解释审计过程。\n\n"
         "【输出格式】\n"
         "只输出 JSON，不要 markdown。字段必须严格为：\n"
-        '{"scores":{"persona":0,"grounding":0,"style":0,"quality":0},'
+        '{"scores":{"persona":0,"grounding":0,"style":0,"format":0,"quality":0},'
         '"issues":["具体问题"],"decision":"keep | light_rewrite | rewrite",'
         '"improved_assistant":"最终回答"}'
     )
