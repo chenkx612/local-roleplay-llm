@@ -1,0 +1,14 @@
+{
+  "persona": {
+    "file": "inputs/persona.json",
+    "sha256": "8b4be4ac72b0f90ff2bd875fe318319ce1498cd11cd503e39f782ca14b46ae90"
+  },
+  "style_examples": {
+    "file": "inputs/style_examples.jsonl",
+    "sha256": "fb0b748cbb44d31df93561515daebd8b598bb0352236c46500491dde9b9c084a"
+  },
+  "system_prompt": {
+    "file": "system_prompt.txt",
+    "sha256": "d2cbaaa6d603b66e123c0fc435bcb8477584ea487870087d1db74a8ae4a4938a"
+  }
+}

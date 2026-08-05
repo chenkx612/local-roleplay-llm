@@ -28,7 +28,6 @@ import sys
 import time
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +55,7 @@ _load_dotenv()
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-chat"
+DEFAULT_RUN_ID = "morgana-v1"
 
 MVP_TARGETS: dict[str, int] = {"sft": 100, "grpo": 30, "dev": 20, "eval": 50}
 MIN_STYLE_EXAMPLES = 10
@@ -668,7 +668,7 @@ def main() -> None:
         "--output-dir",
         type=Path,
         default=None,
-        help="运行产物目录（默认 data/runs/<timestamp>）",
+        help=f"运行产物目录（默认 data/runs/{DEFAULT_RUN_ID}）",
     )
     parser.add_argument(
         "--api-key", default=None, help="DeepSeek API Key（默认读 DEEPSEEK_API_KEY）"
@@ -685,9 +685,7 @@ def main() -> None:
     examples_path = args.style_examples or (
         args.persona.parent / "style_examples.jsonl"
     )
-    output_dir = args.output_dir or (
-        Path("data/runs") / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    )
+    output_dir = args.output_dir or Path("data/runs") / DEFAULT_RUN_ID
     try:
         if args.snapshot_only:
             paths = save_input_snapshot(args.persona, examples_path, output_dir)
