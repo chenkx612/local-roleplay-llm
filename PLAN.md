@@ -378,11 +378,12 @@ SFT 或 GRPO 未达到预期，只要完整记录现象、定位原因并形成�
 
 ## Milestone 1：实践数据
 
-**状态：未开始（重做）。**
+**状态：进行中。**
 
-- [x] 重写 persona、style examples 和格式契约，完成 5 条 Pilot。
-- [ ] 生成首次实践规模的共享候选池并切分、去重。
-- [ ] 生成 Teacher-corrected SFT，完成自动检查和人工复核。
+- [x] 完成 1.1 输入：重写 persona、style examples 和格式契约，并完成输入审阅与校验。
+- [x] 完成 1.2 数据规格与切分：生成首次实践规模的共享候选池，完成切分和去重。
+- [x] 完成 1.3 Pilot：完成 5 条 Pilot，验证 Student baseline 与 Teacher 纠错链路。
+- [ ] 完成 1.3 Teacher-corrected SFT，完成自动检查和人工复核。
 - [ ] 生成 Dev/Eval Base；记录检查结果后进入阶段二。
 
 ## Milestone 2：SFT 实践
