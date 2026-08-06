@@ -1,5 +1,16 @@
 # Repository Guidelines
 
+## Project Purpose & Priorities
+
+This is a learning-oriented project for experiencing and understanding an end-to-end roleplay model post-training workflow. It is not intended to become a production training platform or a general-purpose model infrastructure project.
+
+Two characteristics are equally important:
+
+- **Simple and fast**: prefer the smallest viable datasets, one primary configuration, minimal dependencies and abstractions, and short feedback loops. Avoid production-grade machinery unless it is required for the current learning objective.
+- **Complete pipeline**: preserve the full path from business goals, persona and data preparation through Base evaluation, SFT, GRPO, unified evaluation, and retrospective. Every core stage should produce a minimal inspectable artifact.
+
+When these priorities appear to conflict, reduce the scale and complexity of each stage rather than removing a core stage. Optimize for a small, understandable, reproducible learning loop—not for feature breadth, throughput, or premature extensibility.
+
 ## Project Structure & Module Organization
 
 This is a Python 3.10+ package using the `src` layout.
