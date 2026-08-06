@@ -19,12 +19,16 @@ from roleplay.sft_data import (
     TEACHER_TEMPERATURE,
     TEACHER_THINKING_TYPE,
     build_teacher_system,
+    build_pilot_report,
     call_teacher_with_retry,
     load_prompts,
     load_style_examples,
     main,
     parse_teacher_audit,
+    rerun_pilot_teacher,
+    run_pilot,
     run_student_aware_sft,
+    select_pilot_records,
 )
 
 
@@ -44,6 +48,7 @@ def audit_json(
     *,
     decision: str = "keep",
     improved: str | None = None,
+    final_checks: dict[str, bool] | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -57,6 +62,14 @@ def audit_json(
             "issues": [],
             "decision": decision,
             "improved_assistant": baseline if improved is None else improved,
+            "final_checks": final_checks
+            or {
+                "persona_and_addressing": True,
+                "grounding_and_creativity": True,
+                "format": True,
+                "directly_answers_user": True,
+                "natural_dialogue": True,
+            },
         },
         ensure_ascii=False,
     )
@@ -93,13 +106,19 @@ class TeacherAuditTests(unittest.TestCase):
         prompt = build_teacher_system("PERSONA", "EXAMPLES")
         self.assertIn("PERSONA", prompt)
         self.assertIn("EXAMPLES", prompt)
-        self.assertIn("唯一来源", prompt)
+        self.assertIn("最高优先级依据", prompt)
+        self.assertIn("原作设定", prompt)
+        self.assertIn("非持久性创造", prompt)
         self.assertIn("最小充分修改", prompt)
-        self.assertIn("不知道", prompt)
         self.assertIn("预设", prompt)
-        self.assertIn("家庭成员", prompt)
+        self.assertIn("用户个人信息", prompt)
+        self.assertIn("持续状态", prompt)
         self.assertIn("格式契约 format", prompt)
         self.assertIn("全角括号", prompt)
+        self.assertIn("改写后必做自检", prompt)
+        self.assertIn("不能因为某个细节来自 baseline 就保留它", prompt)
+        self.assertIn("不要误删符合原作的细节", prompt)
+        self.assertIn("口语对白中不得再出现任何动作括号", prompt)
         self.assertIn('"format":0', prompt)
 
     def test_parses_keep_audit_and_adds_context_fields(self):
@@ -207,6 +226,50 @@ class PromptLoadingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "datagen prompt"):
                 load_prompts(path)
 
+    def test_selects_one_pilot_prompt_per_scenario_in_plan_order(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "prompts.jsonl"
+            scenarios = ["style", "daily", "adversarial", "emotion", "background"]
+            records = [
+                {
+                    "id": f"sft_{index:04d}",
+                    "scenario": scenario,
+                    "target_goals": ["dialogue_quality"],
+                    "user": f"{scenario} 问题",
+                }
+                for index, scenario in enumerate(scenarios, 1)
+            ]
+            records.append(
+                {
+                    "id": "sft_9999",
+                    "scenario": "daily",
+                    "target_goals": ["dialogue_quality"],
+                    "user": "第二条 daily",
+                }
+            )
+            path.write_text(
+                "".join(
+                    json.dumps(record, ensure_ascii=False) + "\n"
+                    for record in records
+                ),
+                encoding="utf-8",
+            )
+
+            selected = select_pilot_records(path)
+
+            self.assertEqual(
+                [record["scenario"] for record in selected],
+                ["daily", "background", "emotion", "style", "adversarial"],
+            )
+            self.assertEqual(len(selected), 5)
+
+    def test_pilot_selection_rejects_legacy_records(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "prompts.jsonl"
+            path.write_text('{"user":"问题"}\n', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "scenario"):
+                select_pilot_records(path)
+
     def test_rejects_malformed_datagen_metadata_records(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "prompts.jsonl"
@@ -282,13 +345,15 @@ class StudentAwarePipelineTests(unittest.TestCase):
 
     def test_writes_three_aligned_outputs_and_ms_swift_messages(self):
         self.write_prompts("问题一", "问题二")
-        student = _FakeClient([("回答一", "stop"), ("回答二", "stop")])
+        student = _FakeClient([("（点头）回答一", "stop"), ("（点头）回答二", "stop")])
         teacher = _FakeClient(
             [
-                (audit_json("回答一"), "stop"),
+                (audit_json("（点头）回答一"), "stop"),
                 (
                     audit_json(
-                        "回答二", decision="light_rewrite", improved="改进回答二"
+                        "（点头）回答二",
+                        decision="light_rewrite",
+                        improved="（微笑）改进回答二",
                     ),
                     "stop",
                 ),
@@ -312,7 +377,7 @@ class StudentAwarePipelineTests(unittest.TestCase):
         self.assertEqual([record["decision"] for record in audits], ["keep", "light_rewrite"])
         self.assertEqual(
             [record["messages"][2]["content"] for record in train],
-            ["回答一", "改进回答二"],
+            ["（点头）回答一", "（微笑）改进回答二"],
         )
         self.assertEqual(
             [message["role"] for message in train[0]["messages"]],
@@ -358,18 +423,18 @@ class StudentAwarePipelineTests(unittest.TestCase):
         )
 
     def test_teacher_retry_uses_flash_reasoning_configuration(self):
-        teacher = _FakeClient([(audit_json("回答"), "stop")])
+        teacher = _FakeClient([(audit_json("（点头）回答"), "stop")])
         audit, attempts = call_teacher_with_retry(
             teacher,
             "deepseek-v4-flash",
             "system",
             "问题",
-            "回答",
+            "（点头）回答",
             item_label="样本 1",
         )
 
         self.assertEqual(attempts, 1)
-        self.assertEqual(audit["improved_assistant"], "回答")
+        self.assertEqual(audit["improved_assistant"], "（点头）回答")
         call = teacher.chat.completions.calls[0]
         self.assertEqual(call["model"], "deepseek-v4-flash")
         self.assertEqual(call["max_tokens"], 4096)
@@ -377,12 +442,76 @@ class StudentAwarePipelineTests(unittest.TestCase):
         self.assertEqual(call["extra_body"]["thinking"], {"type": "enabled"})
         self.assertEqual(call["extra_body"]["reasoning_effort"], "high")
 
+    def test_teacher_retries_when_final_answer_breaks_format_contract(self):
+        baseline = "（点头）原回答"
+        teacher = _FakeClient(
+            [
+                (
+                    audit_json(
+                        baseline,
+                        decision="rewrite",
+                        improved="（点头）第一句（挥手）第二句",
+                    ),
+                    "stop",
+                ),
+                (
+                    audit_json(
+                        baseline,
+                        decision="rewrite",
+                        improved="（点头）合格回答",
+                    ),
+                    "stop",
+                ),
+            ]
+        )
+
+        audit, attempts = call_teacher_with_retry(
+            teacher,
+            "teacher",
+            "system",
+            "问题",
+            baseline,
+            item_label="样本 1",
+        )
+
+        self.assertEqual(attempts, 2)
+        self.assertEqual(audit["improved_assistant"], "（点头）合格回答")
+
+    def test_teacher_retries_when_semantic_final_check_is_false(self):
+        baseline = "（点头）原回答"
+        failed_checks = {
+            "persona_and_addressing": True,
+            "grounding_and_creativity": True,
+            "format": True,
+            "directly_answers_user": False,
+            "natural_dialogue": True,
+        }
+        teacher = _FakeClient(
+            [
+                (audit_json(baseline, final_checks=failed_checks), "stop"),
+                (audit_json(baseline), "stop"),
+            ]
+        )
+
+        _, attempts = call_teacher_with_retry(
+            teacher,
+            "teacher",
+            "system",
+            "问题",
+            baseline,
+            item_label="样本 1",
+        )
+
+        self.assertEqual(attempts, 2)
+
     def test_failure_keeps_aligned_prefix_and_next_run_resumes(self):
         self.write_prompts("问题一", "问题二")
-        first_student = _FakeClient([("回答一", "stop"), ("回答二", "stop")])
+        first_student = _FakeClient(
+            [("（点头）回答一", "stop"), ("（点头）回答二", "stop")]
+        )
         first_teacher = _FakeClient(
             [
-                (audit_json("回答一"), "stop"),
+                (audit_json("（点头）回答一"), "stop"),
                 ("not json", "stop"),
                 ("not json", "stop"),
                 ("not json", "stop"),
@@ -398,8 +527,10 @@ class StudentAwarePipelineTests(unittest.TestCase):
         ]
         self.assertEqual([len(path.read_text().splitlines()) for path in paths], [1, 1, 1])
 
-        resumed_student = _FakeClient([("新回答二", "stop")])
-        resumed_teacher = _FakeClient([(audit_json("新回答二"), "stop")])
+        resumed_student = _FakeClient([("（点头）新回答二", "stop")])
+        resumed_teacher = _FakeClient(
+            [(audit_json("（点头）新回答二"), "stop")]
+        )
         self.run_pipeline(resumed_student, resumed_teacher)
         self.assertEqual([len(path.read_text().splitlines()) for path in paths], [2, 2, 2])
         self.assertEqual(len(resumed_student.chat.completions.calls), 1)
@@ -407,8 +538,8 @@ class StudentAwarePipelineTests(unittest.TestCase):
     def test_resume_rejects_changed_generation_configuration(self):
         self.write_prompts("问题一")
         self.run_pipeline(
-            _FakeClient([("回答一", "stop")]),
-            _FakeClient([(audit_json("回答一"), "stop")]),
+            _FakeClient([("（点头）回答一", "stop")]),
+            _FakeClient([(audit_json("（点头）回答一"), "stop")]),
         )
         student = _FakeClient([])
         teacher = _FakeClient([])
@@ -423,8 +554,8 @@ class StudentAwarePipelineTests(unittest.TestCase):
     def test_resume_rejects_changed_style_examples(self):
         self.write_prompts("问题一")
         self.run_pipeline(
-            _FakeClient([("回答一", "stop")]),
-            _FakeClient([(audit_json("回答一"), "stop")]),
+            _FakeClient([("（点头）回答一", "stop")]),
+            _FakeClient([(audit_json("（点头）回答一"), "stop")]),
         )
         with self.examples_path.open("a", encoding="utf-8") as file:
             file.write('{"user":"新问题","assistant":"（点头）新回答"}\n')
@@ -449,13 +580,169 @@ class StudentAwarePipelineTests(unittest.TestCase):
         ):
             (self.root / name).write_text('{"stale":true}\n', encoding="utf-8")
         self.run_pipeline(
-            _FakeClient([("新回答", "stop")]),
-            _FakeClient([(audit_json("新回答"), "stop")]),
+            _FakeClient([("（点头）新回答", "stop")]),
+            _FakeClient([(audit_json("（点头）新回答"), "stop")]),
             restart=True,
         )
         self.assertNotIn(
             "stale",
             (self.root / "sft_baseline_outputs.jsonl").read_text(encoding="utf-8"),
+        )
+
+
+class PilotPipelineTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.persona_path = self.root / "persona.json"
+        self.persona_path.write_text(
+            json.dumps(PERSONA, ensure_ascii=False), encoding="utf-8"
+        )
+        self.examples_path = self.root / "style_examples.jsonl"
+        self.examples_path.write_text(
+            "".join(
+                json.dumps(
+                    {"user": f"示例问题{i}", "assistant": f"（点头）示例回答{i}"},
+                    ensure_ascii=False,
+                )
+                + "\n"
+                for i in range(10)
+            ),
+            encoding="utf-8",
+        )
+        self.prompts_path = self.root / "sft_train_prompts.jsonl"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_scenario_prompts(self) -> None:
+        scenarios = ["style", "daily", "adversarial", "emotion", "background"]
+        self.prompts_path.write_text(
+            "".join(
+                json.dumps(
+                    {
+                        "id": f"sft_{index:04d}",
+                        "scenario": scenario,
+                        "target_goals": ["dialogue_quality"],
+                        "user": f"{scenario} 问题",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+                for index, scenario in enumerate(scenarios, 1)
+            ),
+            encoding="utf-8",
+        )
+
+    def test_runs_isolated_five_item_pilot_and_writes_review_artifacts(self):
+        self.write_scenario_prompts()
+        answers = [f"（点头）回答{i}" for i in range(5)]
+        pilot_dir = self.root / "pilot"
+        pilot_dir.mkdir()
+        (pilot_dir / "pilot_review.md").write_text("旧复核表", encoding="utf-8")
+        outputs = run_pilot(
+            persona_path=self.persona_path,
+            examples_path=self.examples_path,
+            prompts_path=self.prompts_path,
+            output_dir=pilot_dir,
+            student_model="student",
+            student_base_url="http://student",
+            teacher_model="teacher",
+            student_client=_FakeClient([(answer, "stop") for answer in answers]),
+            teacher_client=_FakeClient(
+                [(audit_json(answer), "stop") for answer in answers]
+            ),
+        )
+
+        report = json.loads(outputs["report"].read_text(encoding="utf-8"))
+        self.assertEqual(report["status"], "automatic_checks_passed")
+        self.assertEqual(report["sample_count"], 5)
+        self.assertEqual(report["scenario_count"], 5)
+        self.assertTrue(all(item["automatic_pass"] for item in report["items"]))
+        self.assertIn("[ ] 通过", outputs["review"].read_text(encoding="utf-8"))
+        self.assertNotIn("旧复核表", outputs["review"].read_text(encoding="utf-8"))
+        self.assertIn("报告 SHA256", outputs["review"].read_text(encoding="utf-8"))
+        self.assertEqual(len(outputs["prompts"].read_text().splitlines()), 5)
+
+    def test_report_flags_invalid_final_format_for_manual_review(self):
+        prompts = [
+            {
+                "id": f"sft_{index:04d}",
+                "scenario": scenario,
+                "target_goals": ["dialogue_quality"],
+                "user": f"问题{index}",
+            }
+            for index, scenario in enumerate(
+                ["daily", "background", "emotion", "style", "adversarial"], 1
+            )
+        ]
+        baselines = [
+            {
+                "user": prompt["user"],
+                "assistant": "回答",
+                "finish_reason": "stop",
+                "attempts": 1,
+            }
+            for prompt in prompts
+        ]
+        audits = [
+            parse_teacher_audit(audit_json("回答"), prompt["user"], "回答")
+            for prompt in prompts
+        ]
+
+        report = build_pilot_report(prompts, baselines, audits)
+
+        self.assertEqual(report["status"], "manual_review_required")
+        self.assertFalse(report["items"][0]["automatic_checks"]["format_contract"])
+
+    def test_teacher_only_rerun_keeps_frozen_baselines(self):
+        self.write_scenario_prompts()
+        answers = [f"（点头）baseline {i}" for i in range(5)]
+        pilot_dir = self.root / "pilot"
+        run_pilot(
+            persona_path=self.persona_path,
+            examples_path=self.examples_path,
+            prompts_path=self.prompts_path,
+            output_dir=pilot_dir,
+            student_model="student",
+            student_base_url="http://student",
+            teacher_model="teacher",
+            student_client=_FakeClient([(answer, "stop") for answer in answers]),
+            teacher_client=_FakeClient(
+                [(audit_json(answer), "stop") for answer in answers]
+            ),
+        )
+        frozen_baselines = (pilot_dir / "sft_baseline_outputs.jsonl").read_bytes()
+        improved = [f"（微笑）Teacher 新回答 {i}" for i in range(5)]
+
+        outputs = rerun_pilot_teacher(
+            persona_path=self.persona_path,
+            examples_path=self.examples_path,
+            prompts_path=self.prompts_path,
+            output_dir=pilot_dir,
+            student_model="student",
+            student_base_url="http://student",
+            teacher_model="teacher",
+            teacher_client=_FakeClient(
+                [
+                    (
+                        audit_json(
+                            answer, decision="rewrite", improved=new_answer
+                        ),
+                        "stop",
+                    )
+                    for answer, new_answer in zip(answers, improved)
+                ]
+            ),
+        )
+
+        self.assertEqual(outputs["baseline"].read_bytes(), frozen_baselines)
+        train = [
+            json.loads(line)
+            for line in outputs["train"].read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(
+            [record["messages"][2]["content"] for record in train], improved
         )
 
 

@@ -83,8 +83,9 @@
 ## 1.1 输入
 
 `persona.json` 必须包含 `name`、`identity`、`personality`、`speech_style`、
-`relationships`、`facts`、`boundaries`，可选 `notes`。Persona 是角色事实的唯一来源，
-内容应明确、无冲突。
+`relationships`、`facts`、`boundaries`，可选 `notes`。Persona 是本项目中角色身份、
+关系、当前状态和边界的最高优先级依据，内容应明确、无冲突，但不要把它当成
+角色所在原作世界的穷尽百科。可以使用与 persona 不冲突、稳定且相关的原作设定。
 
 除 `name` 外，各字段均填写为字符串数组；每一项只表达一条清晰设定。可按下表填写：
 
@@ -166,7 +167,10 @@ Teacher 要求：
 
 - 分别检查角色一致性、格式一致性和对话质量。
 - 合格回答原样保留，不合格回答做最小充分修改。
-- 不补充 persona 和用户消息之外的事实；未知信息应明确保留为未知。
+- persona 优先于其他信息；可使用不冲突的稳定原作设定，也可作服务于当前回复的
+  非持久性创造，如当下选择、假设行为、普通生活细节和幽默夸张。
+- 不编造用户个人信息、重大关系变化、具体共同经历、依赖跨轮记忆的持续状态，
+  或无依据的重大角色经历；真正无法确定的这类信息才保留为未知。
 
 Teacher 纠错使用 `deepseek-v4-flash`，开启 thinking 并设置 `reasoning_effort=high`，
 `max_tokens=4096`。thinking 模式下不设置 `temperature` 或 `top_p`，以审核稳定性优先。
@@ -376,7 +380,7 @@ SFT 或 GRPO 未达到预期，只要完整记录现象、定位原因并形成�
 
 **状态：未开始（重做）。**
 
-- [ ] 重写 persona、style examples 和格式契约，完成 5 条 Pilot。
+- [x] 重写 persona、style examples 和格式契约，完成 5 条 Pilot。
 - [ ] 生成首次实践规模的共享候选池并切分、去重。
 - [ ] 生成 Teacher-corrected SFT，完成自动检查和人工复核。
 - [ ] 生成 Dev/Eval Base；记录检查结果后进入阶段二。
