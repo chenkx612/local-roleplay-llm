@@ -20,6 +20,7 @@ from roleplay.sft_data import (
     TEACHER_THINKING_TYPE,
     build_teacher_system,
     call_teacher_with_retry,
+    load_prompts,
     load_style_examples,
     main,
     parse_teacher_audit,
@@ -162,6 +163,68 @@ class TeacherAuditTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "10～20"):
                 load_style_examples(path)
+
+
+class PromptLoadingTests(unittest.TestCase):
+    def test_accepts_legacy_user_only_records(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "prompts.jsonl"
+            path.write_text(
+                json.dumps({"user": "问题一"}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(load_prompts(path), ["问题一"])
+
+    def test_accepts_datagen_metadata_records(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "prompts.jsonl"
+            path.write_text(
+                json.dumps(
+                    {
+                        "id": "sft_0001",
+                        "scenario": "daily",
+                        "target_goals": ["dialogue_quality"],
+                        "user": "问题一",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(load_prompts(path), ["问题一"])
+
+    def test_rejects_generated_output_records_with_user_field(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sft_baseline_outputs.jsonl"
+            path.write_text(
+                json.dumps(
+                    {"user": "问题一", "assistant": "回答一", "attempts": 1},
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "datagen prompt"):
+                load_prompts(path)
+
+    def test_rejects_malformed_datagen_metadata_records(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "prompts.jsonl"
+            path.write_text(
+                json.dumps(
+                    {
+                        "id": "sft_0001",
+                        "scenario": "daily",
+                        "target_goals": [],
+                        "user": "问题一",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "datagen prompt"):
+                load_prompts(path)
 
 
 class StudentAwarePipelineTests(unittest.TestCase):

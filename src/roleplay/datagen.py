@@ -1,8 +1,8 @@
 """Generate frozen SFT, GRPO, dev and evaluation prompts with DeepSeek.
 
 The teacher is prompted with the validated persona and a few in-character examples,
-then asked to emit user prompts covering the five scenario types required by
-PLAN.md §1.2:
+then asked to emit user prompts covering the three role-play goals and five
+scenario types required by PLAN.md §1.2:
 
     1. 日常对话
     2. 角色背景与人物关系
@@ -13,8 +13,9 @@ PLAN.md §1.2:
 The MVP target size is intentionally small: 50 SFT / 20 GRPO / 10 dev /
 20 eval prompts.
 
-All records contain only the raw user prompt. Student and Teacher answers are
-created in later stages, after these mutually isolated splits have been frozen.
+Each record contains the raw user prompt plus local metadata for scenario and
+target-goal coverage. Student and Teacher answers are created in later stages,
+after these mutually isolated splits have been frozen.
 """
 
 from __future__ import annotations
@@ -65,36 +66,79 @@ MIN_STYLE_EXAMPLES = 10
 MAX_STYLE_EXAMPLES = 20
 STYLE_RESPONSE_PATTERN = re.compile(r"^（[^（）\r\n]+）[^（）\r\n]+$")
 
-SCENARIOS: tuple[dict[str, str], ...] = (
+GOALS: tuple[dict[str, str], ...] = (
+    {
+        "id": "character_consistency",
+        "name": "角色一致性",
+        "description": "触发身份、性格、关系、事实、边界和未知事实处理。",
+    },
+    {
+        "id": "format_consistency",
+        "name": "格式一致性",
+        "description": "观察模型能否稳定输出“全角括号动作/神态 + 口语对白”。",
+    },
+    {
+        "id": "dialogue_quality",
+        "name": "对话质量",
+        "description": "观察回复是否相关、自然、连贯、有信息量，并能承接后续对话。",
+    },
+)
+GOAL_BY_ID = {goal["id"]: goal for goal in GOALS}
+GOAL_LEAK_PATTERNS = (
+    "character_consistency",
+    "format_consistency",
+    "dialogue_quality",
+    "target_goals",
+    "角色一致性",
+    "格式一致性",
+    "对话质量",
+    "评测目标",
+    "评分标准",
+)
+
+SCENARIOS: tuple[dict[str, Any], ...] = (
     {
         "id": "daily",
         "name": "日常对话",
         "description": "生活化闲聊、日常安排、吃饭出行、兴趣爱好等普通话题。",
         "hints": "用户话题应多样（起居、工作、天气、兴趣、计划等），避免连续追问同一主题。",
+        "target_goals": ("dialogue_quality", "character_consistency"),
     },
     {
         "id": "background",
         "name": "角色背景与人物关系",
         "description": "涉及角色身份、过往经历、已知事实、人物关系的问题。",
         "hints": "部分问题可超出已知事实范围，角色应当场承认不知道或向用户确认，不要编造。",
+        "target_goals": ("character_consistency", "dialogue_quality"),
     },
     {
         "id": "emotion",
         "name": "情绪与选择",
         "description": "安慰、道歉、分歧、价值判断、情感表达等需要情绪拿捏的场景。",
         "hints": "用户情绪可正可负（沮丧、吃醋、兴奋、迷茫），角色表达要符合人设性格。",
+        "target_goals": ("dialogue_quality", "character_consistency"),
     },
     {
         "id": "style",
         "name": "语言风格",
         "description": "最能体现角色说话风格、口头禅、语气特征的场景。",
         "hints": "设计能自然引出角色特色语气、用词和节奏的问题，避免直接要求复述示例。",
+        "target_goals": (
+            "character_consistency",
+            "format_consistency",
+            "dialogue_quality",
+        ),
     },
     {
         "id": "adversarial",
         "name": "出戏、冲突与未知事实",
         "description": "试图让角色出戏、引用冲突信息，或追问设定中不存在的事实和共同经历。",
         "hints": "混合激将、反问、矛盾事实和未知信息；问题本身不要预设角色已经承认或做过某事。",
+        "target_goals": (
+            "character_consistency",
+            "format_consistency",
+            "dialogue_quality",
+        ),
     },
 )
 
@@ -124,6 +168,25 @@ def _render_examples(examples: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _render_goals() -> str:
+    return "\n".join(
+        f"- {goal['id']}（{goal['name']}）：{goal['description']}"
+        for goal in GOALS
+    )
+
+
+def _scenario_goal_summary(scenario: dict[str, Any]) -> str:
+    return "、".join(
+        f"{goal_id}（{GOAL_BY_ID[goal_id]['name']}）"
+        for goal_id in scenario["target_goals"]
+    )
+
+
+def _contains_goal_leak(prompt: str) -> bool:
+    lowered = prompt.lower()
+    return any(pattern.lower() in lowered for pattern in GOAL_LEAK_PATTERNS)
+
+
 def build_teacher_system(
     persona_text: str, examples_text: str, persona_name: str
 ) -> str:
@@ -134,13 +197,16 @@ def build_teacher_system(
         f"{persona_text}\n\n"
         "【少量表达风格样例】\n"
         f"{examples_text}\n\n"
+        "【角色扮演目标（仅用于设计覆盖面，不得写入用户 Prompt）】\n"
+        f"{_render_goals()}\n\n"
         "【生成规则】\n"
         "1. 角色设定是身份、关系、经历和事实的唯一来源。\n"
         "2. 表达风格样例只用于理解适合引出何种表达，不得把样例中的事实或共同经历当成设定。\n"
         f"3. 用户的称呼应自然贴合与{persona_name}的关系，问题要像真实即时聊天。\n"
         "4. Prompt 的长度、语气、话题和句式应变化，避免模板化。\n"
         "5. 每条 Prompt 都应独立成立，不要互相引用或依赖。\n"
-        "6. 不要在 Prompt 中代替角色回答，也不要要求复述角色设定。\n\n"
+        "6. 不要在 Prompt 中代替角色回答，也不要要求复述角色设定。\n"
+        "7. 不要出现角色一致性、格式一致性、对话质量、评测目标、评分标准等元数据词。\n\n"
         "【输出要求】\n"
         "严格按 JSON 格式输出，不要包含说明文字或 markdown 标记。\n"
         '格式为：{"prompts": ["用户 Prompt", "..."]}'
@@ -148,12 +214,14 @@ def build_teacher_system(
 
 
 def build_scenario_user_prompt(
-    scenario: dict[str, str], count: int, offset: int, split_label: str
+    scenario: dict[str, Any], count: int, offset: int, split_label: str
 ) -> str:
     return (
         f"请为 {split_label} split 生成 {count} 条属于【{scenario['name']}】场景的用户 Prompt。\n\n"
         f"场景说明：{scenario['description']}\n"
         f"生成提示：{scenario['hints']}\n\n"
+        f"本场景主要覆盖目标：{_scenario_goal_summary(scenario)}。\n"
+        "这些目标只用于你设计覆盖面，不得写入用户 Prompt；用户消息必须像真实聊天，不能像测试说明。\n\n"
         "多样性要求：\n"
         f"- 这是本场景的第 {offset + 1} 至 {offset + count} 条，请与之前的条目明显不同。\n"
         "- 用户提问的句式、话题、情绪、长度都要有变化。\n"
@@ -189,7 +257,10 @@ def parse_prompts(raw: str) -> list[str]:
 
     valid: list[str] = []
     for item in prompts:
-        user = item.get("user") if isinstance(item, dict) else item
+        if isinstance(item, dict):
+            user = item.get("user") or item.get("user_input") or item.get("prompt")
+        else:
+            user = item
         if isinstance(user, str) and user.strip():
             valid.append(user.strip())
     return valid
@@ -278,13 +349,13 @@ def _call_teacher(
 def _generate_for_scenario(
     client: OpenAI,
     model: str,
-    scenario: dict[str, str],
+    scenario: dict[str, Any],
     total: int,
     context: GenerationContext,
     max_tokens: int,
     label: str,
     seen: set[str],
-) -> list[str]:
+) -> list[dict[str, Any]]:
     """Keep requesting batches until ``total`` unique valid prompts are collected.
 
     Partial teacher responses are kept and the shortfall is requested in later
@@ -297,7 +368,7 @@ def _generate_for_scenario(
     system = build_teacher_system(
         context.persona_text, context.examples_text, context.persona_name
     )
-    collected: list[str] = []
+    collected: list[dict[str, Any]] = []
     offset = 0
     consecutive_empty = 0
 
@@ -320,7 +391,9 @@ def _generate_for_scenario(
             )
 
         if accepted:
-            collected.extend(accepted)
+            collected.extend(
+                _build_prompt_candidate(prompt, scenario) for prompt in accepted
+            )
             offset += len(accepted)
             consecutive_empty = 0
             print(
@@ -350,6 +423,8 @@ def _take_unique_prompts(
 ) -> list[str]:
     accepted: list[str] = []
     for prompt in prompts:
+        if _contains_goal_leak(prompt):
+            continue
         key = normalize_prompt(prompt)
         if not key or key in seen:
             continue
@@ -360,6 +435,14 @@ def _take_unique_prompts(
     return accepted
 
 
+def _build_prompt_candidate(prompt: str, scenario: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "user": prompt,
+        "scenario": scenario["id"],
+        "target_goals": list(scenario["target_goals"]),
+    }
+
+
 def _generate_all_scenarios(
     client: OpenAI,
     model: str,
@@ -368,10 +451,10 @@ def _generate_all_scenarios(
     max_tokens: int,
     label: str,
     seen: set[str],
-) -> list[str]:
+) -> list[dict[str, Any]]:
     dist = _scenario_distribution(total)
     print(f"[{label}] 共 {total} 条，场景分配：{dist}")
-    all_prompts: list[str] = []
+    all_prompts: list[dict[str, Any]] = []
     for scenario in SCENARIOS:
         n = dist[scenario["id"]]
         if n == 0:
@@ -392,8 +475,21 @@ def _generate_all_scenarios(
     return all_prompts
 
 
-def format_prompt_records(prompts: list[str]) -> list[dict[str, str]]:
-    return [{"user": prompt} for prompt in prompts]
+def format_prompt_records(
+    prompts: list[dict[str, Any]], split_label: str
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    prefix = split_label.lower()
+    for index, prompt in enumerate(prompts, 1):
+        records.append(
+            {
+                "id": f"{prefix}_{index:04d}",
+                "scenario": prompt["scenario"],
+                "target_goals": list(prompt["target_goals"]),
+                "user": prompt["user"],
+            }
+        )
+    return records
 
 
 def write_jsonl(records: list[Any], path: Path) -> None:
@@ -634,10 +730,10 @@ def generate(
 
     write_file_bundle(
         {
-            sft_path: _jsonl_bytes(format_prompt_records(sft_prompts)),
-            rl_path: _jsonl_bytes(format_prompt_records(grpo_prompts)),
-            dev_path: _jsonl_bytes(format_prompt_records(dev_prompts)),
-            eval_path: _jsonl_bytes(format_prompt_records(eval_prompts)),
+            sft_path: _jsonl_bytes(format_prompt_records(sft_prompts, "sft")),
+            rl_path: _jsonl_bytes(format_prompt_records(grpo_prompts, "grpo")),
+            dev_path: _jsonl_bytes(format_prompt_records(dev_prompts, "dev")),
+            eval_path: _jsonl_bytes(format_prompt_records(eval_prompts, "eval")),
             **snapshot_contents,
         }
     )

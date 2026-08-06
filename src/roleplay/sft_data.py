@@ -62,6 +62,8 @@ AUDIT_FIELDS = {
     "decision",
     "improved_assistant",
 }
+PROMPT_RECORD_FIELDS = {"user"}
+PROMPT_METADATA_RECORD_FIELDS = {"id", "scenario", "target_goals", "user"}
 
 
 class StudentAwareSFTError(RuntimeError):
@@ -69,7 +71,7 @@ class StudentAwareSFTError(RuntimeError):
 
 
 def load_prompts(path: Path) -> list[str]:
-    """Load a frozen prompt JSONL file and require the exact ``{"user": ...}`` shape."""
+    """Load frozen prompt JSONL records, accepting optional datagen metadata."""
     prompts: list[str] = []
     with path.open(encoding="utf-8") as file:
         for line_no, line in enumerate(file, 1):
@@ -81,14 +83,33 @@ def load_prompts(path: Path) -> list[str]:
                 raise ValueError(
                     f"Prompt 文件第 {line_no} 行不是合法 JSON: {exc.msg}"
                 ) from exc
+            record_fields = set(record) if isinstance(record, dict) else set()
+            is_metadata_record = record_fields == PROMPT_METADATA_RECORD_FIELDS
+            allowed_fields = (PROMPT_RECORD_FIELDS, PROMPT_METADATA_RECORD_FIELDS)
             if (
                 not isinstance(record, dict)
-                or set(record) != {"user"}
+                or record_fields not in allowed_fields
                 or not isinstance(record["user"], str)
                 or not record["user"].strip()
+                or (
+                    is_metadata_record
+                    and (
+                        not isinstance(record["id"], str)
+                        or not record["id"].strip()
+                        or not isinstance(record["scenario"], str)
+                        or not record["scenario"].strip()
+                        or not isinstance(record["target_goals"], list)
+                        or not record["target_goals"]
+                        or any(
+                            not isinstance(goal, str) or not goal.strip()
+                            for goal in record["target_goals"]
+                        )
+                    )
+                )
             ):
                 raise ValueError(
-                    f"Prompt 文件第 {line_no} 行必须是仅含非空 user 的对象"
+                    f"Prompt 文件第 {line_no} 行必须是仅含非空 user 的对象，"
+                    "或包含 id、scenario、target_goals、user 的 datagen prompt 对象"
                 )
             prompts.append(record["user"])
     if not prompts:

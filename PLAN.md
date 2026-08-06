@@ -137,6 +137,12 @@ Prompt 生成使用 `deepseek-v4-flash`，关闭 thinking 以保留采样参数�
 `thinking.type=disabled`、`temperature=1.1`、`max_tokens=2048`。此阶段只生成用户
 Prompt，不生成角色回答。
 
+生成器需参考三项目标设计覆盖面，但目标不得直接写入用户 Prompt。每条记录保存本地元数据：
+`id`、`scenario`、`target_goals` 和 `user`；其中 `scenario` 对应五类场景，`target_goals`
+取自 `character_consistency`、`format_consistency`、`dialogue_quality`。训练、推理和评测
+只把 `user` 作为用户消息，其余字段仅用于切分覆盖检查、人工抽查和后续结果分析。用户 Prompt
+应保持真实聊天口吻，避免出现“角色一致性”“格式一致性”“对话质量”“评测目标”等元数据词。
+
 ## 1.3 Pilot 与 Teacher-corrected SFT
 
 核心链路：

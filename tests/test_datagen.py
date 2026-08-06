@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from roleplay.datagen import (
     DEEPSEEK_MODEL,
+    GOALS,
     MAX_CONSECUTIVE_EMPTY,
     MVP_TARGETS,
     PROMPT_GENERATION_MAX_TOKENS,
@@ -58,6 +59,15 @@ class ScenarioDistributionTests(unittest.TestCase):
         expected = {"sft": 50, "grpo": 20, "dev": 10, "eval": 20}
         self.assertEqual(MVP_TARGETS, expected)
 
+    def test_scenarios_have_known_target_goals(self):
+        goal_ids = {goal["id"] for goal in GOALS}
+        covered_goals: set[str] = set()
+        for scenario in SCENARIOS:
+            self.assertTrue(scenario["target_goals"])
+            self.assertLessEqual(set(scenario["target_goals"]), goal_ids)
+            covered_goals.update(scenario["target_goals"])
+        self.assertEqual(covered_goals, goal_ids)
+
 
 class ParsePromptTests(unittest.TestCase):
     def test_clean_json_and_code_fence(self):
@@ -70,6 +80,10 @@ class ParsePromptTests(unittest.TestCase):
         self.assertEqual(parse_prompts('["a","b"]'), ["a", "b"])
         self.assertEqual(
             parse_prompts('{"data":[{"user":"a"},{"user":"b"}]}'), ["a", "b"]
+        )
+        self.assertEqual(
+            parse_prompts('{"prompts":[{"user_input":"a"},{"prompt":"b"}]}'),
+            ["a", "b"],
         )
 
     def test_skips_invalid_and_blank_items(self):
@@ -102,6 +116,13 @@ class NormalizationTests(unittest.TestCase):
             _take_unique_prompts(["新问题", "另一个问题"], seen, limit=5), []
         )
 
+    def test_unique_filter_rejects_explicit_goal_metadata_leaks(self):
+        seen: set[str] = set()
+        accepted = _take_unique_prompts(
+            ["请测试角色一致性", "像平常那样跟我聊两句"], seen, limit=5
+        )
+        self.assertEqual(accepted, ["像平常那样跟我聊两句"])
+
 
 class PromptBuildingTests(unittest.TestCase):
     def test_teacher_system_enforces_prompt_only_and_fact_boundary(self):
@@ -109,6 +130,8 @@ class PromptBuildingTests(unittest.TestCase):
         self.assertIn("PERSONA_TEXT", text)
         self.assertIn("EXAMPLES_TEXT", text)
         self.assertIn("唯一来源", text)
+        self.assertIn("角色扮演目标", text)
+        self.assertIn("不得写入用户 Prompt", text)
         self.assertIn("不要生成角色回答", text)
         self.assertIn('"prompts"', text)
 
@@ -117,6 +140,8 @@ class PromptBuildingTests(unittest.TestCase):
         prompt = build_scenario_user_prompt(scenario, 5, 10, "DEV")
         self.assertIn("DEV", prompt)
         self.assertIn(scenario["name"], prompt)
+        self.assertIn("主要覆盖目标", prompt)
+        self.assertIn("不得写入用户 Prompt", prompt)
         self.assertIn("11", prompt)
         self.assertIn("15", prompt)
 
@@ -129,8 +154,29 @@ class PromptBuildingTests(unittest.TestCase):
 
 
 class JsonlTests(unittest.TestCase):
-    def test_format_prompt_records_has_no_answer(self):
-        self.assertEqual(format_prompt_records(["问题"]), [{"user": "问题"}])
+    def test_format_prompt_records_has_metadata_and_no_answer(self):
+        records = format_prompt_records(
+            [
+                {
+                    "user": "问题",
+                    "scenario": "daily",
+                    "target_goals": ["dialogue_quality"],
+                }
+            ],
+            "sft",
+        )
+        self.assertEqual(
+            records,
+            [
+                {
+                    "id": "sft_0001",
+                    "scenario": "daily",
+                    "target_goals": ["dialogue_quality"],
+                    "user": "问题",
+                }
+            ],
+        )
+        self.assertNotIn("assistant", records[0])
 
     def test_write_and_load(self):
         with TemporaryDirectory() as tmp:
@@ -343,13 +389,36 @@ class GenerateEndToEndTests(unittest.TestCase):
         self.assertEqual(set(outputs), {"sft", "rl", "dev", "eval"})
 
         expected = {"sft": 50, "rl": 20, "dev": 10, "eval": 20}
+        id_prefixes = {"sft": "sft", "rl": "grpo", "dev": "dev", "eval": "eval"}
+        scenario_ids = {scenario["id"] for scenario in SCENARIOS}
+        goal_ids = {goal["id"] for goal in GOALS}
         all_keys: set[str] = set()
         for name, path in outputs.items():
             records = [
                 json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
             ]
             self.assertEqual(len(records), expected[name])
-            self.assertTrue(all(set(record) == {"user"} for record in records))
+            self.assertTrue(
+                all(
+                    set(record) == {"id", "scenario", "target_goals", "user"}
+                    for record in records
+                )
+            )
+            self.assertEqual(
+                [record["id"] for record in records],
+                [
+                    f"{id_prefixes[name]}_{index:04d}"
+                    for index in range(1, expected[name] + 1)
+                ],
+            )
+            self.assertTrue(all(record["scenario"] in scenario_ids for record in records))
+            self.assertTrue(
+                all(
+                    record["target_goals"]
+                    and set(record["target_goals"]).issubset(goal_ids)
+                    for record in records
+                )
+            )
             keys = {normalize_prompt(record["user"]) for record in records}
             self.assertEqual(len(keys), expected[name])
             self.assertTrue(all_keys.isdisjoint(keys))
