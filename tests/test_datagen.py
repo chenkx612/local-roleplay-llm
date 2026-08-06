@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from roleplay.datagen import (
+    DEFAULT_SPLIT_SEED,
     DEEPSEEK_MODEL,
     GOALS,
     MAX_CONSECUTIVE_EMPTY,
@@ -20,8 +21,10 @@ from roleplay.datagen import (
     SCENARIOS,
     GenerationShortfallError,
     _call_teacher,
+    _candidate_pool_distribution,
     _render_examples,
     _scenario_distribution,
+    _split_scenario_distributions,
     _take_unique_prompts,
     build_scenario_user_prompt,
     build_teacher_system,
@@ -31,6 +34,7 @@ from roleplay.datagen import (
     normalize_prompt,
     parse_prompts,
     save_input_snapshot,
+    split_candidate_pool,
     write_jsonl,
     write_jsonl_bundle,
 )
@@ -67,6 +71,75 @@ class ScenarioDistributionTests(unittest.TestCase):
             self.assertLessEqual(set(scenario["target_goals"]), goal_ids)
             covered_goals.update(scenario["target_goals"])
         self.assertEqual(covered_goals, goal_ids)
+
+    def test_candidate_pool_combines_split_scenario_targets(self):
+        split_distributions = _split_scenario_distributions()
+        pool_distribution = _candidate_pool_distribution()
+
+        self.assertEqual(sum(pool_distribution.values()), sum(MVP_TARGETS.values()))
+        for scenario in SCENARIOS:
+            scenario_id = scenario["id"]
+            self.assertEqual(
+                pool_distribution[scenario_id],
+                sum(
+                    distribution[scenario_id]
+                    for distribution in split_distributions.values()
+                ),
+            )
+
+    def test_seeded_candidate_pool_split_is_reproducible(self):
+        pool = []
+        for scenario in SCENARIOS:
+            for index in range(_candidate_pool_distribution()[scenario["id"]]):
+                pool.append(
+                    {
+                        "user": f"{scenario['id']}_{index}",
+                        "scenario": scenario["id"],
+                        "target_goals": list(scenario["target_goals"]),
+                    }
+                )
+
+        first = split_candidate_pool(pool, split_seed=11)
+        second = split_candidate_pool(pool, split_seed=11)
+        third = split_candidate_pool(pool, split_seed=12)
+
+        self.assertEqual(first, second)
+        self.assertNotEqual(
+            [record["user"] for record in first["sft"]],
+            [record["user"] for record in third["sft"]],
+        )
+        for split, total in MVP_TARGETS.items():
+            self.assertEqual(len(first[split]), total)
+            scenario_counts = {
+                scenario["id"]: sum(
+                    1 for record in first[split]
+                    if record["scenario"] == scenario["id"]
+                )
+                for scenario in SCENARIOS
+            }
+            self.assertEqual(scenario_counts, _scenario_distribution(total))
+
+    def test_candidate_pool_split_rejects_scenario_count_mismatch(self):
+        pool = []
+        for scenario in SCENARIOS:
+            for index in range(_candidate_pool_distribution()[scenario["id"]]):
+                pool.append(
+                    {
+                        "user": f"{scenario['id']}_{index}",
+                        "scenario": scenario["id"],
+                        "target_goals": list(scenario["target_goals"]),
+                    }
+                )
+        pool.append(
+            {
+                "user": "daily_extra",
+                "scenario": "daily",
+                "target_goals": ["dialogue_quality"],
+            }
+        )
+
+        with self.assertRaisesRegex(GenerationShortfallError, "数量不匹配"):
+            split_candidate_pool(pool)
 
 
 class ParsePromptTests(unittest.TestCase):
@@ -390,6 +463,7 @@ class GenerateEndToEndTests(unittest.TestCase):
 
         expected = {"sft": 50, "rl": 20, "dev": 10, "eval": 20}
         id_prefixes = {"sft": "sft", "rl": "grpo", "dev": "dev", "eval": "eval"}
+        target_names = {"sft": "sft", "rl": "grpo", "dev": "dev", "eval": "eval"}
         scenario_ids = {scenario["id"] for scenario in SCENARIOS}
         goal_ids = {goal["id"] for goal in GOALS}
         all_keys: set[str] = set()
@@ -423,6 +497,16 @@ class GenerateEndToEndTests(unittest.TestCase):
             self.assertEqual(len(keys), expected[name])
             self.assertTrue(all_keys.isdisjoint(keys))
             all_keys.update(keys)
+            scenario_counts = {
+                scenario_id: sum(
+                    1 for record in records if record["scenario"] == scenario_id
+                )
+                for scenario_id in scenario_ids
+            }
+            self.assertEqual(
+                scenario_counts,
+                _scenario_distribution(MVP_TARGETS[target_names[name]]),
+            )
 
         self.assertEqual(
             (self.tmpdir / "inputs/persona.json").read_bytes(),
@@ -440,7 +524,40 @@ class GenerateEndToEndTests(unittest.TestCase):
             (self.tmpdir / "input_manifest.json").read_text(encoding="utf-8")
         )
         self.assertEqual(
-            set(manifest), {"persona", "style_examples", "system_prompt"}
+            set(manifest),
+            {
+                "schema_version",
+                "stage",
+                "persona",
+                "style_examples",
+                "system_prompt",
+                "data",
+                "split",
+                "prompt_generation",
+            },
+        )
+        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["data"]["targets"], MVP_TARGETS)
+        self.assertEqual(
+            manifest["data"]["candidate_pool_size"], sum(MVP_TARGETS.values())
+        )
+        self.assertEqual(
+            manifest["data"]["scenario_targets"]["candidate_pool"],
+            _candidate_pool_distribution(),
+        )
+        self.assertEqual(manifest["split"]["seed"], DEFAULT_SPLIT_SEED)
+        self.assertEqual(
+            manifest["split"]["method"],
+            "shared_candidate_pool_then_seeded_per_scenario_split",
+        )
+        self.assertEqual(manifest["prompt_generation"]["model"], DEEPSEEK_MODEL)
+        self.assertEqual(
+            manifest["prompt_generation"]["temperature"],
+            PROMPT_GENERATION_TEMPERATURE,
+        )
+        self.assertEqual(
+            manifest["prompt_generation"]["thinking"],
+            {"type": PROMPT_GENERATION_THINKING_TYPE},
         )
 
     def test_duplicate_only_batch_is_retried_and_backfilled(self):

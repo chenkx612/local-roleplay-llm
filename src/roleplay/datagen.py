@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -59,6 +60,8 @@ DEEPSEEK_MODEL = "deepseek-v4-flash"
 DEFAULT_RUN_ID = "morgana-v1"
 
 MVP_TARGETS: dict[str, int] = {"sft": 50, "grpo": 20, "dev": 10, "eval": 20}
+SPLIT_ORDER: tuple[str, ...] = ("sft", "grpo", "dev", "eval")
+DEFAULT_SPLIT_SEED = 20260806
 PROMPT_GENERATION_MAX_TOKENS = 2048
 PROMPT_GENERATION_TEMPERATURE = 1.1
 PROMPT_GENERATION_THINKING_TYPE = "disabled"
@@ -216,8 +219,9 @@ def build_teacher_system(
 def build_scenario_user_prompt(
     scenario: dict[str, Any], count: int, offset: int, split_label: str
 ) -> str:
+    scope = "共享候选池" if split_label.upper() == "POOL" else f"{split_label} split"
     return (
-        f"请为 {split_label} split 生成 {count} 条属于【{scenario['name']}】场景的用户 Prompt。\n\n"
+        f"请为 {scope} 生成 {count} 条属于【{scenario['name']}】场景的用户 Prompt。\n\n"
         f"场景说明：{scenario['description']}\n"
         f"生成提示：{scenario['hints']}\n\n"
         f"本场景主要覆盖目标：{_scenario_goal_summary(scenario)}。\n"
@@ -276,6 +280,27 @@ def _scenario_distribution(total: int) -> dict[str, int]:
     """Evenly split a total across the five scenarios (remainder to the first ones)."""
     base, remainder = divmod(total, len(SCENARIOS))
     return {s["id"]: base + (1 if i < remainder else 0) for i, s in enumerate(SCENARIOS)}
+
+
+def _split_scenario_distributions(
+    targets: dict[str, int] = MVP_TARGETS,
+) -> dict[str, dict[str, int]]:
+    """Return the per-split scenario quotas used after pool generation."""
+    return {
+        split: _scenario_distribution(targets[split])
+        for split in SPLIT_ORDER
+    }
+
+
+def _candidate_pool_distribution(
+    targets: dict[str, int] = MVP_TARGETS,
+) -> dict[str, int]:
+    """Build the shared-pool scenario quota needed to satisfy every split."""
+    distribution = {scenario["id"]: 0 for scenario in SCENARIOS}
+    for split_distribution in _split_scenario_distributions(targets).values():
+        for scenario_id, count in split_distribution.items():
+            distribution[scenario_id] += count
+    return distribution
 
 
 def _batch_sizes(total: int) -> list[int]:
@@ -451,8 +476,9 @@ def _generate_all_scenarios(
     max_tokens: int,
     label: str,
     seen: set[str],
+    scenario_distribution: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
-    dist = _scenario_distribution(total)
+    dist = scenario_distribution or _scenario_distribution(total)
     print(f"[{label}] 共 {total} 条，场景分配：{dist}")
     all_prompts: list[dict[str, Any]] = []
     for scenario in SCENARIOS:
@@ -473,6 +499,93 @@ def _generate_all_scenarios(
             f"[{label}] 目标 {total} 条，实际 {len(all_prompts)} 条"
         )
     return all_prompts
+
+
+def _generate_candidate_pool(
+    client: OpenAI,
+    model: str,
+    context: GenerationContext,
+    max_tokens: int,
+    seen: set[str],
+) -> list[dict[str, Any]]:
+    distribution = _candidate_pool_distribution()
+    total = sum(distribution.values())
+    return _generate_all_scenarios(
+        client,
+        model,
+        total,
+        context,
+        max_tokens=max_tokens,
+        label="POOL",
+        seen=seen,
+        scenario_distribution=distribution,
+    )
+
+
+def split_candidate_pool(
+    candidate_pool: list[dict[str, Any]], split_seed: int = DEFAULT_SPLIT_SEED
+) -> dict[str, list[dict[str, Any]]]:
+    """Split the shared candidate pool into isolated splits with a fixed seed."""
+    scenario_targets = _candidate_pool_distribution()
+    split_targets = _split_scenario_distributions()
+    by_scenario = {scenario["id"]: [] for scenario in SCENARIOS}
+    for candidate in candidate_pool:
+        scenario_id = candidate.get("scenario")
+        if scenario_id not in by_scenario:
+            raise GenerationShortfallError(f"未知场景：{scenario_id}")
+        by_scenario[scenario_id].append(candidate)
+
+    mismatches = []
+    for scenario_id, target in scenario_targets.items():
+        actual = len(by_scenario[scenario_id])
+        if actual != target:
+            mismatches.append(f"{scenario_id}: {actual}/{target}")
+    if mismatches:
+        raise GenerationShortfallError(
+            "候选池场景数量不匹配，无法切分：" + "；".join(mismatches)
+        )
+
+    rng = random.Random(split_seed)
+    for scenario in SCENARIOS:
+        rng.shuffle(by_scenario[scenario["id"]])
+
+    cursors = {scenario["id"]: 0 for scenario in SCENARIOS}
+    splits: dict[str, list[dict[str, Any]]] = {split: [] for split in SPLIT_ORDER}
+    for split in SPLIT_ORDER:
+        for scenario in SCENARIOS:
+            scenario_id = scenario["id"]
+            count = split_targets[split][scenario_id]
+            start = cursors[scenario_id]
+            stop = start + count
+            splits[split].extend(by_scenario[scenario_id][start:stop])
+            cursors[scenario_id] = stop
+        rng.shuffle(splits[split])
+
+    _validate_prompt_splits(splits)
+    return splits
+
+
+def _validate_prompt_splits(splits: dict[str, list[dict[str, Any]]]) -> None:
+    expected = {split: MVP_TARGETS[split] for split in SPLIT_ORDER}
+    all_keys: set[str] = set()
+    shortfalls = []
+    for split in SPLIT_ORDER:
+        actual = len(splits.get(split, []))
+        if actual != expected[split]:
+            shortfalls.append(f"{split}: {actual}/{expected[split]}")
+            continue
+        for record in splits[split]:
+            key = normalize_prompt(record["user"])
+            if key in all_keys:
+                raise GenerationShortfallError(
+                    f"切分后发现精确重复 Prompt：{record['user']}"
+                )
+            all_keys.add(key)
+    if shortfalls:
+        raise GenerationShortfallError(
+            "切分数量未达目标，已跳过写盘以保留已有产物："
+            + "；".join(shortfalls)
+        )
 
 
 def format_prompt_records(
@@ -561,11 +674,47 @@ def write_jsonl_bundle(records_by_path: dict[Path, list[Any]]) -> None:
     )
 
 
+def _build_run_manifest_extra(
+    *, model: str, base_url: str | None, split_seed: int
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "stage": "1.2_data_specs_and_splits",
+        "data": {
+            "targets": {split: MVP_TARGETS[split] for split in SPLIT_ORDER},
+            "candidate_pool_size": sum(MVP_TARGETS.values()),
+            "scenario_targets": {
+                "candidate_pool": _candidate_pool_distribution(),
+                "splits": _split_scenario_distributions(),
+            },
+        },
+        "split": {
+            "method": "shared_candidate_pool_then_seeded_per_scenario_split",
+            "seed": split_seed,
+            "deduplication": {
+                "scope": "global_candidate_pool",
+                "match_type": "exact_after_normalization",
+                "normalization": "Unicode NFKC, strip ends, collapse whitespace",
+            },
+        },
+        "prompt_generation": {
+            "provider": "deepseek",
+            "base_url": base_url or DEEPSEEK_BASE_URL,
+            "model": model,
+            "temperature": PROMPT_GENERATION_TEMPERATURE,
+            "max_tokens": PROMPT_GENERATION_MAX_TOKENS,
+            "response_format": {"type": "json_object"},
+            "thinking": {"type": PROMPT_GENERATION_THINKING_TYPE},
+        },
+    }
+
+
 def _input_snapshot_bundle(
     output_dir: Path,
     persona_snapshot: bytes,
     examples_snapshot: bytes,
     system_prompt_snapshot: bytes,
+    manifest_extra: dict[str, Any] | None = None,
 ) -> tuple[dict[Path, bytes], dict[str, Path]]:
     snapshot_dir = output_dir / "inputs"
     paths = {
@@ -588,6 +737,8 @@ def _input_snapshot_bundle(
             "sha256": hashlib.sha256(system_prompt_snapshot).hexdigest(),
         },
     }
+    if manifest_extra:
+        manifest.update(manifest_extra)
     contents = {
         paths["persona"]: persona_snapshot,
         paths["style_examples"]: examples_snapshot,
@@ -600,7 +751,13 @@ def _input_snapshot_bundle(
 
 
 def save_input_snapshot(
-    persona_path: Path, examples_path: Path, output_dir: Path
+    persona_path: Path,
+    examples_path: Path,
+    output_dir: Path,
+    *,
+    model: str = DEEPSEEK_MODEL,
+    base_url: str | None = None,
+    split_seed: int = DEFAULT_SPLIT_SEED,
 ) -> dict[str, Path]:
     """Validate and freeze the §1.1 inputs without making an API call."""
     persona = load_persona(persona_path)
@@ -611,6 +768,9 @@ def save_input_snapshot(
         persona_path.read_bytes(),
         examples_path.read_bytes(),
         (system_prompt + "\n").encode("utf-8"),
+        _build_run_manifest_extra(
+            model=model, base_url=base_url, split_seed=split_seed
+        ),
     )
     write_file_bundle(contents)
     return paths
@@ -634,6 +794,7 @@ def generate(
     model: str = DEEPSEEK_MODEL,
     base_url: str | None = None,
     api_key: str | None = None,
+    split_seed: int = DEFAULT_SPLIT_SEED,
 ) -> dict[str, Path]:
     persona = load_persona(persona_path)
     persona_text = render_persona_prompt(persona)
@@ -653,68 +814,18 @@ def generate(
 
     print(f"=== 开始生成 MVP Prompt，角色：{persona['name']} ===")
 
-    # Generate and validate every split before touching output paths. The shared
-    # set enforces both within-split and cross-split exact deduplication.
+    # Generate a shared candidate pool before splitting. The shared set enforces
+    # pool-wide exact deduplication, and the fixed seed makes split assignment
+    # reproducible while preserving the planned scenario quotas per split.
     seen: set[str] = set()
-    sft_prompts = _generate_all_scenarios(
+    candidate_pool = _generate_candidate_pool(
         client,
         model,
-        MVP_TARGETS["sft"],
         context,
         max_tokens=PROMPT_GENERATION_MAX_TOKENS,
-        label="SFT",
         seen=seen,
     )
-    grpo_prompts = _generate_all_scenarios(
-        client,
-        model,
-        MVP_TARGETS["grpo"],
-        context,
-        max_tokens=PROMPT_GENERATION_MAX_TOKENS,
-        label="GRPO",
-        seen=seen,
-    )
-    dev_prompts = _generate_all_scenarios(
-        client,
-        model,
-        MVP_TARGETS["dev"],
-        context,
-        max_tokens=PROMPT_GENERATION_MAX_TOKENS,
-        label="DEV",
-        seen=seen,
-    )
-    eval_prompts = _generate_all_scenarios(
-        client,
-        model,
-        MVP_TARGETS["eval"],
-        context,
-        max_tokens=PROMPT_GENERATION_MAX_TOKENS,
-        label="EVAL",
-        seen=seen,
-    )
-
-    actual = {
-        "SFT": len(sft_prompts),
-        "GRPO": len(grpo_prompts),
-        "DEV": len(dev_prompts),
-        "EVAL": len(eval_prompts),
-    }
-    expected = {
-        "SFT": MVP_TARGETS["sft"],
-        "GRPO": MVP_TARGETS["grpo"],
-        "DEV": MVP_TARGETS["dev"],
-        "EVAL": MVP_TARGETS["eval"],
-    }
-    shortfalls = [
-        f"{name}: {actual[name]}/{expected[name]}"
-        for name in expected
-        if actual[name] != expected[name]
-    ]
-    if shortfalls:
-        raise GenerationShortfallError(
-            "生成数量未达目标，已跳过写盘以保留已有产物："
-            + "；".join(shortfalls)
-        )
+    splits = split_candidate_pool(candidate_pool, split_seed=split_seed)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     sft_path = output_dir / "sft_train_prompts.jsonl"
@@ -726,23 +837,27 @@ def generate(
         persona_snapshot,
         examples_snapshot,
         system_prompt_snapshot,
+        _build_run_manifest_extra(
+            model=model, base_url=base_url, split_seed=split_seed
+        ),
     )
 
     write_file_bundle(
         {
-            sft_path: _jsonl_bytes(format_prompt_records(sft_prompts, "sft")),
-            rl_path: _jsonl_bytes(format_prompt_records(grpo_prompts, "grpo")),
-            dev_path: _jsonl_bytes(format_prompt_records(dev_prompts, "dev")),
-            eval_path: _jsonl_bytes(format_prompt_records(eval_prompts, "eval")),
+            sft_path: _jsonl_bytes(format_prompt_records(splits["sft"], "sft")),
+            rl_path: _jsonl_bytes(format_prompt_records(splits["grpo"], "grpo")),
+            dev_path: _jsonl_bytes(format_prompt_records(splits["dev"], "dev")),
+            eval_path: _jsonl_bytes(format_prompt_records(splits["eval"], "eval")),
             **snapshot_contents,
         }
     )
 
     print(f"=== 生成完成 ===")
-    print(f"SFT Prompt ：{len(sft_prompts)} 条 -> {sft_path}")
-    print(f"GRPO Prompt：{len(grpo_prompts)} 条 -> {rl_path}")
-    print(f"Dev Prompt ：{len(dev_prompts)} 条 -> {dev_path}")
-    print(f"Eval Prompt：{len(eval_prompts)} 条 -> {eval_path}")
+    print(f"候选池     ：{len(candidate_pool)} 条，split seed={split_seed}")
+    print(f"SFT Prompt ：{len(splits['sft'])} 条 -> {sft_path}")
+    print(f"GRPO Prompt：{len(splits['grpo'])} 条 -> {rl_path}")
+    print(f"Dev Prompt ：{len(splits['dev'])} 条 -> {dev_path}")
+    print(f"Eval Prompt：{len(splits['eval'])} 条 -> {eval_path}")
     print(f"输入快照   ：{snapshot_paths['persona'].parent}")
     print(f"System Prompt：{snapshot_paths['system_prompt']}")
     return {"sft": sft_path, "rl": rl_path, "dev": dev_path, "eval": eval_path}
@@ -776,6 +891,12 @@ def main() -> None:
     parser.add_argument("--base-url", default=None, help="自定义 API base URL")
     parser.add_argument("--model", default=DEEPSEEK_MODEL, help="DeepSeek 模型名")
     parser.add_argument(
+        "--split-seed",
+        type=int,
+        default=DEFAULT_SPLIT_SEED,
+        help="共享候选池切分随机种子",
+    )
+    parser.add_argument(
         "--snapshot-only",
         action="store_true",
         help="仅校验并保存输入快照与 system prompt，不调用 API",
@@ -788,7 +909,14 @@ def main() -> None:
     output_dir = args.output_dir or Path("data/runs") / DEFAULT_RUN_ID
     try:
         if args.snapshot_only:
-            paths = save_input_snapshot(args.persona, examples_path, output_dir)
+            paths = save_input_snapshot(
+                args.persona,
+                examples_path,
+                output_dir,
+                model=args.model,
+                base_url=args.base_url,
+                split_seed=args.split_seed,
+            )
             print(f"输入校验通过，快照已保存：{paths['persona'].parent}")
             print(f"System Prompt：{paths['system_prompt']}")
             return
@@ -799,6 +927,7 @@ def main() -> None:
             api_key=args.api_key,
             base_url=args.base_url,
             model=args.model,
+            split_seed=args.split_seed,
         )
     except (OSError, ValueError, PersonaValidationError, GenerationShortfallError) as exc:
         raise SystemExit(f"生成失败：{exc}") from exc
