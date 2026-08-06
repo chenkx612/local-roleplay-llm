@@ -10,15 +10,19 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from roleplay.datagen import (
+    BACKFILL_BATCH_SIZE,
     DEFAULT_SPLIT_SEED,
     DEEPSEEK_MODEL,
     GOALS,
     MAX_CONSECUTIVE_EMPTY,
     MVP_TARGETS,
     PROMPT_GENERATION_MAX_TOKENS,
+    PROMPT_GENERATION_REASONING_EFFORT,
     PROMPT_GENERATION_TEMPERATURE,
     PROMPT_GENERATION_THINKING_TYPE,
+    SCENARIO_OVERSAMPLE_COUNT,
     SCENARIOS,
+    GenerationContext,
     GenerationShortfallError,
     _call_teacher,
     _candidate_pool_distribution,
@@ -49,6 +53,14 @@ PERSONA = {
     "facts": [],
     "boundaries": ["不承认是模型"],
 }
+
+MORGANA_CONTEXT = GenerationContext(
+    persona_text="PERSONA_TEXT",
+    examples_text="EXAMPLES_TEXT",
+    persona_name="摩尔加纳",
+    user_name="莲",
+    role_self_references=("吾辈",),
+)
 
 
 class ScenarioDistributionTests(unittest.TestCase):
@@ -196,16 +208,49 @@ class NormalizationTests(unittest.TestCase):
         )
         self.assertEqual(accepted, ["像平常那样跟我聊两句"])
 
+    def test_unique_filter_rejects_speaker_perspective_inversion(self):
+        seen: set[str] = set()
+        accepted = _take_unique_prompts(
+            [
+                "吾辈觉得还是直接问莲比较好。",
+                "莲，你为什么总摸我的头？",
+                "莲蹲下来问我是不是生气了。",
+                "摩尔加纳，你为什么总爱自称吾辈？",
+            ],
+            seen,
+            limit=4,
+            context=MORGANA_CONTEXT,
+        )
+        self.assertEqual(accepted, ["摩尔加纳，你为什么总爱自称吾辈？"])
+
+    def test_unique_filter_rejects_long_near_duplicates(self):
+        seen: set[str] = set()
+        existing = ["今天天气特别好，我们一起去附近的公园散步怎么样？"]
+        accepted = _take_unique_prompts(
+            [
+                "今天天气特别好，我们一起去附近的公园走走怎么样？",
+                "我把钥匙忘在家里了，你能帮我看看窗台吗？",
+            ],
+            seen,
+            limit=2,
+            existing_prompts=existing,
+        )
+        self.assertEqual(accepted, ["我把钥匙忘在家里了，你能帮我看看窗台吗？"])
+
 
 class PromptBuildingTests(unittest.TestCase):
     def test_teacher_system_enforces_prompt_only_and_fact_boundary(self):
-        text = build_teacher_system("PERSONA_TEXT", "EXAMPLES_TEXT", "小衣")
+        text = build_teacher_system(
+            "PERSONA_TEXT", "EXAMPLES_TEXT", "摩尔加纳", "莲", ("吾辈",)
+        )
         self.assertIn("PERSONA_TEXT", text)
         self.assertIn("EXAMPLES_TEXT", text)
         self.assertIn("唯一来源", text)
         self.assertIn("角色扮演目标", text)
         self.assertIn("不得写入用户 Prompt", text)
         self.assertIn("不要生成角色回答", text)
+        self.assertIn("说话人始终是莲", text)
+        self.assertIn("用户不得用“吾辈”自称", text)
         self.assertIn('"prompts"', text)
 
     def test_scenario_prompt_mentions_split_offset_and_count(self):
@@ -217,6 +262,18 @@ class PromptBuildingTests(unittest.TestCase):
         self.assertIn("不得写入用户 Prompt", prompt)
         self.assertIn("11", prompt)
         self.assertIn("15", prompt)
+
+    def test_backfill_prompt_lists_accepted_prompts_to_avoid(self):
+        prompt = build_scenario_user_prompt(
+            SCENARIOS[0],
+            5,
+            18,
+            "POOL",
+            accepted_prompts=["已经存在的问题"],
+        )
+        self.assertIn("定向补充候选", prompt)
+        self.assertIn("已经存在的问题", prompt)
+        self.assertIn("不要复述、同义改写", prompt)
 
     def test_examples_render_all_or_empty_notice(self):
         examples = [{"user": f"u{i}", "assistant": f"a{i}"} for i in range(12)]
@@ -398,9 +455,9 @@ class _FakeCompletions:
             content = self._responses.pop(0)
         else:
             prompts = [
-                f"fallback_{self.fallback_index + index}" for index in range(5)
+                f"fallback_{self.fallback_index + index}" for index in range(25)
             ]
-            self.fallback_index += 5
+            self.fallback_index += 25
             content = json.dumps({"prompts": prompts})
         choice = SimpleNamespace(message=SimpleNamespace(content=content))
         return SimpleNamespace(choices=[choice])
@@ -442,7 +499,7 @@ class GenerateEndToEndTests(unittest.TestCase):
     def _responses(self, count: int = 200) -> list[str]:
         return [
             json.dumps(
-                {"prompts": [f"prompt_{batch}_{index}" for index in range(5)]}
+                {"prompts": [f"prompt_{batch}_{index}" for index in range(25)]}
             )
             for batch in range(count)
         ]
@@ -542,6 +599,11 @@ class GenerateEndToEndTests(unittest.TestCase):
             manifest["data"]["candidate_pool_size"], sum(MVP_TARGETS.values())
         )
         self.assertEqual(
+            manifest["data"]["initial_candidate_target"],
+            sum(MVP_TARGETS.values())
+            + len(SCENARIOS) * SCENARIO_OVERSAMPLE_COUNT,
+        )
+        self.assertEqual(
             manifest["data"]["scenario_targets"]["candidate_pool"],
             _candidate_pool_distribution(),
         )
@@ -559,6 +621,43 @@ class GenerateEndToEndTests(unittest.TestCase):
             manifest["prompt_generation"]["thinking"],
             {"type": PROMPT_GENERATION_THINKING_TYPE},
         )
+        self.assertEqual(
+            manifest["prompt_generation"]["reasoning_effort"],
+            PROMPT_GENERATION_REASONING_EFFORT,
+        )
+        self.assertEqual(
+            manifest["prompt_generation"]["strategy"],
+            {
+                "mode": "scenario_batch_oversample_filter_backfill",
+                "oversample_per_scenario": SCENARIO_OVERSAMPLE_COUNT,
+                "backfill_batch_size": BACKFILL_BATCH_SIZE,
+                "quality_filters": [
+                    "goal_metadata_leak",
+                    "speaker_perspective",
+                    "missing_context",
+                    "exact_duplicate",
+                    "near_duplicate",
+                ],
+            },
+        )
+
+    def test_initial_generation_is_one_oversampled_batch_per_scenario(self):
+        client = _FakeClient(self._responses())
+        generate(
+            persona_path=self.persona_path,
+            examples_path=self.examples_path,
+            output_dir=self.tmpdir,
+            client=client,
+        )
+
+        calls = client.chat.completions.calls
+        self.assertEqual(len(calls), len(SCENARIOS))
+        for call in calls:
+            user_prompt = call["messages"][1]["content"]
+            self.assertIn(
+                f"生成 {20 + SCENARIO_OVERSAMPLE_COUNT} 条", user_prompt
+            )
+            self.assertIn("首轮过采样候选", user_prompt)
 
     def test_duplicate_only_batch_is_retried_and_backfilled(self):
         duplicate = json.dumps({"prompts": ["same"] * 5})
@@ -570,19 +669,24 @@ class GenerateEndToEndTests(unittest.TestCase):
             len(outputs["sft"].read_text(encoding="utf-8").splitlines()), 50
         )
 
-    def test_prompt_generation_uses_flash_sampling_and_disabled_thinking(self):
+    def test_prompt_generation_uses_flash_deep_thinking_without_sampling(self):
         client = _FakeClient([json.dumps({"prompts": ["问题"]})])
         _call_teacher(client, DEEPSEEK_MODEL, "system", "user", max_tokens=123)
 
         call = client.chat.completions.calls[0]
         self.assertEqual(call["model"], "deepseek-v4-flash")
-        self.assertEqual(call["temperature"], PROMPT_GENERATION_TEMPERATURE)
+        self.assertIsNone(PROMPT_GENERATION_TEMPERATURE)
+        self.assertNotIn("temperature", call)
         self.assertEqual(call["max_tokens"], 123)
         self.assertEqual(
             call["extra_body"]["thinking"]["type"],
             PROMPT_GENERATION_THINKING_TYPE,
         )
-        self.assertEqual(PROMPT_GENERATION_MAX_TOKENS, 2048)
+        self.assertEqual(
+            call["extra_body"]["reasoning_effort"],
+            PROMPT_GENERATION_REASONING_EFFORT,
+        )
+        self.assertEqual(PROMPT_GENERATION_MAX_TOKENS, 8192)
 
     def test_normalized_cross_split_duplicates_are_backfilled(self):
         first = json.dumps({"prompts": ["ＡＢＣ", "p1", "p2", "p3", "p4"]})

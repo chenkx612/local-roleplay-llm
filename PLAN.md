@@ -34,7 +34,7 @@
 - Teacher：`deepseek-v4-flash`
 - 训练框架：`ms-swift`
 - Student 训练与推理：`enable_thinking=false`
-- Teacher Prompt 生成：`thinking.type=disabled`，`temperature=1.1`
+- Teacher Prompt 生成：`thinking.type=enabled`，`reasoning_effort=high`，按场景批量过采样
 - Teacher SFT 纠错：`thinking.type=enabled`，`reasoning_effort=high`
 
 在完整实践过程中验证的核心问题：
@@ -133,15 +133,23 @@ SFT、Dev、GRPO、Eval 分别用于监督训练、过程观察、强化学习�
 Eval 不进入 SFT。首次切分后保存随机种子和各 split 文件。学习阶段只要求避免明确的数据
 泄漏，不要求全量近似重复审计。
 
-Prompt 生成使用 `deepseek-v4-flash`，关闭 thinking 以保留采样参数的多样性控制：
-`thinking.type=disabled`、`temperature=1.1`、`max_tokens=2048`。此阶段只生成用户
-Prompt，不生成角色回答。
+Prompt 生成使用 `deepseek-v4-flash` 并开启深度思考：`thinking.type=enabled`、
+`reasoning_effort=high`、`max_tokens=8192`，不设置 `temperature` 或 `top_p`。每个场景
+首轮一次生成 25 条候选，程序过滤后保留 20 条；不足时携带该场景已经接受的 Prompt 列表，
+按至少 5 条一批定向补齐。五类场景最终各保留 20 条，共组成 100 条共享候选池。此阶段只生成
+用户 Prompt，不生成角色回答。
+
+批量生成时必须明确用户和角色的说话视角：用户始终是 persona 关系字段中的用户本人，回复者
+始终是角色。用户不得使用角色专属自称，不得从角色第一人称描述用户，也不得询问应当如何回复
+用户。每条 Prompt 必须独立成立，不依赖未提供的上一轮对话。
 
 生成器需参考三项目标设计覆盖面，但目标不得直接写入用户 Prompt。每条记录保存本地元数据：
 `id`、`scenario`、`target_goals` 和 `user`；其中 `scenario` 对应五类场景，`target_goals`
 取自 `character_consistency`、`format_consistency`、`dialogue_quality`。训练、推理和评测
 只把 `user` 作为用户消息，其余字段仅用于切分覆盖检查、人工抽查和后续结果分析。用户 Prompt
 应保持真实聊天口吻，避免出现“角色一致性”“格式一致性”“对话质量”“评测目标”等元数据词。
+程序在共享池范围内执行结构校验、视角风险过滤、归一化精确去重和保守的高相似文本过滤；
+最终仍需人工抽查，自动过滤不替代语义审核。
 
 ## 1.3 Pilot 与 Teacher-corrected SFT
 

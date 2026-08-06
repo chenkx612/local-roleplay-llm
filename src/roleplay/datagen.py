@@ -11,7 +11,8 @@ scenario types required by PLAN.md §1.2:
     5. 出戏、冲突与未知事实
 
 The MVP target size is intentionally small: 50 SFT / 20 GRPO / 10 dev /
-20 eval prompts.
+20 eval prompts. Prompt generation uses one reasoning-enabled oversampled batch
+per scenario, then filters and backfills locally before the seeded split.
 
 Each record contains the raw user prompt plus local metadata for scenario and
 target-goal coverage. Student and Teacher answers are created in later stages,
@@ -21,6 +22,7 @@ after these mutually isolated splits have been frozen.
 from __future__ import annotations
 
 import argparse
+from difflib import SequenceMatcher
 import hashlib
 import json
 import os
@@ -62,9 +64,14 @@ DEFAULT_RUN_ID = "morgana-v1"
 MVP_TARGETS: dict[str, int] = {"sft": 50, "grpo": 20, "dev": 10, "eval": 20}
 SPLIT_ORDER: tuple[str, ...] = ("sft", "grpo", "dev", "eval")
 DEFAULT_SPLIT_SEED = 20260806
-PROMPT_GENERATION_MAX_TOKENS = 2048
-PROMPT_GENERATION_TEMPERATURE = 1.1
-PROMPT_GENERATION_THINKING_TYPE = "disabled"
+PROMPT_GENERATION_TEMPERATURE: float | None = None
+PROMPT_GENERATION_THINKING_TYPE = "enabled"
+PROMPT_GENERATION_REASONING_EFFORT = "high"
+PROMPT_GENERATION_MAX_TOKENS = 8192
+SCENARIO_OVERSAMPLE_COUNT = 5
+BACKFILL_BATCH_SIZE = 5
+NEAR_DUPLICATE_MIN_CHARS = 20
+NEAR_DUPLICATE_RATIO = 0.88
 MIN_STYLE_EXAMPLES = 10
 MAX_STYLE_EXAMPLES = 20
 STYLE_RESPONSE_PATTERN = re.compile(r"^（[^（）\r\n]+）[^（）\r\n]+$")
@@ -145,7 +152,6 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
     },
 )
 
-BATCH_SIZE = 5
 # Consecutive teacher batches with no new valid prompts before aborting a scenario.
 MAX_CONSECUTIVE_EMPTY = 5
 
@@ -159,6 +165,28 @@ class GenerationContext:
     persona_text: str
     examples_text: str
     persona_name: str
+    user_name: str | None
+    role_self_references: tuple[str, ...]
+
+
+def _extract_user_name(persona: dict[str, Any]) -> str | None:
+    """Extract a named user relationship such as ``莲：...`` when available."""
+    for relationship in persona.get("relationships", []):
+        match = re.match(r"^([^：:,，\s]{1,12})[：:]", relationship)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _extract_role_self_references(persona: dict[str, Any]) -> tuple[str, ...]:
+    """Extract explicit role-only self references from speech-style rules."""
+    references: list[str] = []
+    for rule in persona.get("speech_style", []):
+        for match in re.finditer(r"自称[“\"']([^”\"']+)[”\"']", rule):
+            reference = match.group(1).strip()
+            if reference and reference not in references:
+                references.append(reference)
+    return tuple(references)
 
 
 def _render_examples(examples: list[dict[str, str]]) -> str:
@@ -191,11 +219,22 @@ def _contains_goal_leak(prompt: str) -> bool:
 
 
 def build_teacher_system(
-    persona_text: str, examples_text: str, persona_name: str
+    persona_text: str,
+    examples_text: str,
+    persona_name: str,
+    user_name: str | None = None,
+    role_self_references: tuple[str, ...] = (),
 ) -> str:
+    user_identity = user_name or "角色设定中与角色对话的用户"
+    self_reference_rule = (
+        "、".join(f"“{reference}”" for reference in role_self_references)
+        if role_self_references
+        else "角色专属的自称或口头禅"
+    )
     return (
         "你是一位角色扮演数据准备教师（Teacher）。你的任务是根据给定的角色设定，\n"
-        "只生成自然、多样的用户 Prompt；不要生成角色回答。\n\n"
+        "先在思考中规划整批的覆盖面，再只生成自然、多样的用户 Prompt；"
+        "不要生成角色回答。\n\n"
         "【角色设定】\n"
         f"{persona_text}\n\n"
         "【少量表达风格样例】\n"
@@ -205,11 +244,15 @@ def build_teacher_system(
         "【生成规则】\n"
         "1. 角色设定是身份、关系、经历和事实的唯一来源。\n"
         "2. 表达风格样例只用于理解适合引出何种表达，不得把样例中的事实或共同经历当成设定。\n"
-        f"3. 用户的称呼应自然贴合与{persona_name}的关系，问题要像真实即时聊天。\n"
-        "4. Prompt 的长度、语气、话题和句式应变化，避免模板化。\n"
-        "5. 每条 Prompt 都应独立成立，不要互相引用或依赖。\n"
-        "6. 不要在 Prompt 中代替角色回答，也不要要求复述角色设定。\n"
-        "7. 不要出现角色一致性、格式一致性、对话质量、评测目标、评分标准等元数据词。\n\n"
+        f"3. 每条消息的说话人始终是{user_identity}，回复者始终是{persona_name}。"
+        "不得交换二者视角。\n"
+        f"4. 用户不得用{self_reference_rule}自称，不得从{persona_name}的第一人称"
+        f"描述{user_identity}做了什么，也不得询问该怎样回复{user_identity}。\n"
+        f"5. 用户的称呼应自然贴合与{persona_name}的关系，消息要像真实即时聊天。\n"
+        "6. Prompt 的长度、语气、话题、句式和互动目的应变化，避免同义改写和模板化。\n"
+        "7. 每条 Prompt 都必须独立成立，不得引用未提供的上一轮对话。\n"
+        "8. 不要在 Prompt 中代替角色回答，也不要要求复述角色设定。\n"
+        "9. 不要出现角色一致性、格式一致性、对话质量、评测目标、评分标准等元数据词。\n\n"
         "【输出要求】\n"
         "严格按 JSON 格式输出，不要包含说明文字或 markdown 标记。\n"
         '格式为：{"prompts": ["用户 Prompt", "..."]}'
@@ -217,11 +260,28 @@ def build_teacher_system(
 
 
 def build_scenario_user_prompt(
-    scenario: dict[str, Any], count: int, offset: int, split_label: str
+    scenario: dict[str, Any],
+    count: int,
+    offset: int,
+    split_label: str,
+    accepted_prompts: list[str] | None = None,
 ) -> str:
     scope = "共享候选池" if split_label.upper() == "POOL" else f"{split_label} split"
+    accepted_prompts = accepted_prompts or []
+    avoidance = ""
+    if accepted_prompts:
+        rendered = "\n".join(
+            f"{index}. {prompt}" for index, prompt in enumerate(accepted_prompts, 1)
+        )
+        avoidance = (
+            "\n【已经接受的 Prompt】\n"
+            "下面这些条目已经存在。不要复述、同义改写或延续它们的话题模板：\n"
+            f"{rendered}\n"
+        )
+    batch_kind = "首轮过采样候选" if not accepted_prompts else "定向补充候选"
     return (
         f"请为 {scope} 生成 {count} 条属于【{scenario['name']}】场景的用户 Prompt。\n\n"
+        f"本次是{batch_kind}；程序会从候选中筛选，因此必须一次返回 {count} 条。\n"
         f"场景说明：{scenario['description']}\n"
         f"生成提示：{scenario['hints']}\n\n"
         f"本场景主要覆盖目标：{_scenario_goal_summary(scenario)}。\n"
@@ -230,6 +290,7 @@ def build_scenario_user_prompt(
         f"- 这是本场景的第 {offset + 1} 至 {offset + count} 条，请与之前的条目明显不同。\n"
         "- 用户提问的句式、话题、情绪、长度都要有变化。\n"
         "- 不要使用相同的开头词或相同的追问套路。\n\n"
+        f"{avoidance}\n"
         "请严格按 JSON 输出，不要 markdown 代码块包裹：\n"
         '{"prompts": ["用户 Prompt", "..."]}'
     )
@@ -276,6 +337,62 @@ def normalize_prompt(prompt: str) -> str:
     return re.sub(r"\s+", " ", normalized).strip()
 
 
+def _comparison_text(prompt: str) -> str:
+    normalized = normalize_prompt(prompt).lower()
+    return re.sub(r"[\W_]+", "", normalized, flags=re.UNICODE)
+
+
+def _is_near_duplicate(prompt: str, existing_prompts: list[str]) -> bool:
+    candidate = _comparison_text(prompt)
+    if len(candidate) < NEAR_DUPLICATE_MIN_CHARS:
+        return False
+    for existing in existing_prompts:
+        comparison = _comparison_text(existing)
+        if len(comparison) < NEAR_DUPLICATE_MIN_CHARS:
+            continue
+        if SequenceMatcher(None, candidate, comparison).ratio() >= NEAR_DUPLICATE_RATIO:
+            return True
+    return False
+
+
+def _uses_role_self_reference_as_user(
+    prompt: str, role_self_references: tuple[str, ...]
+) -> bool:
+    for reference in role_self_references:
+        escaped = re.escape(reference)
+        user_usage = (
+            rf"(?:把|跟|对|给|让){escaped}"
+            rf"|{escaped}(?:觉得|想|要|是|叫|跟|也|就|刚|今天|现在|心里|总|会|能|该|的伙伴)"
+            rf"|是{escaped}的"
+        )
+        if re.search(user_usage, prompt):
+            return True
+    return False
+
+
+def _prompt_quality_issue(
+    prompt: str, context: GenerationContext | None
+) -> str | None:
+    if _contains_goal_leak(prompt):
+        return "目标元数据泄漏"
+    if context is None:
+        return None
+    if _uses_role_self_reference_as_user(prompt, context.role_self_references):
+        return "用户误用角色自称"
+    if context.user_name:
+        user_name = re.escape(context.user_name)
+        if re.match(rf"^\s*{user_name}[：:,，]", prompt):
+            return "用户称呼回复者为自己"
+        third_person_actions = (
+            "把|问|蹲|跟我|跑|拿|翻|说|忽然|居然|带我|看着我|走过来|坐过来"
+        )
+        if re.search(rf"{user_name}(?:{third_person_actions})", prompt):
+            return "从角色视角描述用户"
+    if re.match(r"^\s*(?:那是什么感觉|那件事|刚才说的(?:那个|那件事))", prompt):
+        return "依赖未提供的上文"
+    return None
+
+
 def _scenario_distribution(total: int) -> dict[str, int]:
     """Evenly split a total across the five scenarios (remainder to the first ones)."""
     base, remainder = divmod(total, len(SCENARIOS))
@@ -301,14 +418,6 @@ def _candidate_pool_distribution(
         for scenario_id, count in split_distribution.items():
             distribution[scenario_id] += count
     return distribution
-
-
-def _batch_sizes(total: int) -> list[int]:
-    full, tail = divmod(total, BATCH_SIZE)
-    sizes = [BATCH_SIZE] * full
-    if tail:
-        sizes.append(tail)
-    return sizes
 
 
 def load_examples(path: Path) -> list[dict[str, str]]:
@@ -357,16 +466,23 @@ def load_examples(path: Path) -> list[dict[str, str]]:
 def _call_teacher(
     client: OpenAI, model: str, system: str, user: str, max_tokens: int
 ) -> str:
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
+    request: dict[str, Any] = {
+        "model": model,
+        "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        temperature=PROMPT_GENERATION_TEMPERATURE,
-        max_tokens=max_tokens,
-        response_format={"type": "json_object"},
-        extra_body={"thinking": {"type": PROMPT_GENERATION_THINKING_TYPE}},
+        "max_tokens": max_tokens,
+        "response_format": {"type": "json_object"},
+        "extra_body": {
+            "thinking": {"type": PROMPT_GENERATION_THINKING_TYPE},
+            "reasoning_effort": PROMPT_GENERATION_REASONING_EFFORT,
+        },
+    }
+    if PROMPT_GENERATION_TEMPERATURE is not None:
+        request["temperature"] = PROMPT_GENERATION_TEMPERATURE
+    response = client.chat.completions.create(
+        **request
     )
     return response.choices[0].message.content or ""
 
@@ -380,29 +496,49 @@ def _generate_for_scenario(
     max_tokens: int,
     label: str,
     seen: set[str],
+    accepted_pool: list[str],
 ) -> list[dict[str, Any]]:
-    """Keep requesting batches until ``total`` unique valid prompts are collected.
-
-    Partial teacher responses are kept and the shortfall is requested in later
-    batches. After ``MAX_CONSECUTIVE_EMPTY`` batches that yield no new valid
-    prompt (each response is retried once), raise ``GenerationShortfallError``.
-    """
+    """Generate one oversampled batch, then backfill only rejected shortfalls."""
     if total <= 0:
         return []
 
     system = build_teacher_system(
-        context.persona_text, context.examples_text, context.persona_name
+        context.persona_text,
+        context.examples_text,
+        context.persona_name,
+        context.user_name,
+        context.role_self_references,
     )
     collected: list[dict[str, Any]] = []
-    offset = 0
     consecutive_empty = 0
+    request_index = 0
 
     while len(collected) < total:
-        size = min(BATCH_SIZE, total - len(collected))
-        user_prompt = build_scenario_user_prompt(scenario, size, offset, label)
+        missing = total - len(collected)
+        size = (
+            total + SCENARIO_OVERSAMPLE_COUNT
+            if request_index == 0
+            else max(BACKFILL_BATCH_SIZE, missing)
+        )
+        accepted_users = [record["user"] for record in collected]
+        user_prompt = build_scenario_user_prompt(
+            scenario,
+            size,
+            len(collected),
+            label,
+            accepted_prompts=accepted_users,
+        )
         raw = _call_teacher(client, model, system, user_prompt, max_tokens=max_tokens)
         parsed = parse_prompts(raw)
-        accepted = _take_unique_prompts(parsed, seen, total - len(collected))
+        rejection_counts: dict[str, int] = {}
+        accepted = _take_unique_prompts(
+            parsed,
+            seen,
+            missing,
+            context=context,
+            existing_prompts=accepted_pool,
+            rejection_counts=rejection_counts,
+        )
         if not accepted:
             print(
                 f"  [{label}/{scenario['id']}] 无新增有效 Prompt，重试一次",
@@ -412,18 +548,28 @@ def _generate_for_scenario(
             raw = _call_teacher(client, model, system, user_prompt, max_tokens=max_tokens)
             parsed = parse_prompts(raw)
             accepted = _take_unique_prompts(
-                parsed, seen, total - len(collected)
+                parsed,
+                seen,
+                missing,
+                context=context,
+                existing_prompts=accepted_pool,
+                rejection_counts=rejection_counts,
             )
 
         if accepted:
             collected.extend(
                 _build_prompt_candidate(prompt, scenario) for prompt in accepted
             )
-            offset += len(accepted)
             consecutive_empty = 0
+            rejection_summary = ""
+            if rejection_counts:
+                rejection_summary = "，过滤 " + "、".join(
+                    f"{reason} {count} 条"
+                    for reason, count in sorted(rejection_counts.items())
+                )
             print(
                 f"  [{label}/{scenario['id']}] +{len(accepted)} 条"
-                f"（累计 {len(collected)}/{total}）"
+                f"（累计 {len(collected)}/{total}{rejection_summary}）"
             )
         else:
             consecutive_empty += 1
@@ -438,22 +584,40 @@ def _generate_for_scenario(
                     f"连续 {MAX_CONSECUTIVE_EMPTY} 次无有效数据后仅得到 {len(collected)} 条，"
                     f"停止生成以免写出残缺产物"
                 )
+        request_index += 1
         time.sleep(0.3)
 
     return collected[:total]
 
 
 def _take_unique_prompts(
-    prompts: list[str], seen: set[str], limit: int
+    prompts: list[str],
+    seen: set[str],
+    limit: int,
+    *,
+    context: GenerationContext | None = None,
+    existing_prompts: list[str] | None = None,
+    rejection_counts: dict[str, int] | None = None,
 ) -> list[str]:
+    existing_prompts = existing_prompts if existing_prompts is not None else []
     accepted: list[str] = []
     for prompt in prompts:
-        if _contains_goal_leak(prompt):
+        issue = _prompt_quality_issue(prompt, context)
+        if issue:
+            if rejection_counts is not None:
+                rejection_counts[issue] = rejection_counts.get(issue, 0) + 1
             continue
         key = normalize_prompt(prompt)
         if not key or key in seen:
+            if rejection_counts is not None:
+                rejection_counts["精确重复"] = rejection_counts.get("精确重复", 0) + 1
+            continue
+        if _is_near_duplicate(prompt, existing_prompts + accepted):
+            if rejection_counts is not None:
+                rejection_counts["高相似重复"] = rejection_counts.get("高相似重复", 0) + 1
             continue
         seen.add(key)
+        existing_prompts.append(prompt)
         accepted.append(prompt)
         if len(accepted) >= limit:
             break
@@ -481,13 +645,22 @@ def _generate_all_scenarios(
     dist = scenario_distribution or _scenario_distribution(total)
     print(f"[{label}] 共 {total} 条，场景分配：{dist}")
     all_prompts: list[dict[str, Any]] = []
+    accepted_pool: list[str] = []
     for scenario in SCENARIOS:
         n = dist[scenario["id"]]
         if n == 0:
             continue
         print(f"[{label}] 场景：{scenario['name']}（目标 {n} 条）")
         prompts = _generate_for_scenario(
-            client, model, scenario, n, context, max_tokens, label, seen
+            client,
+            model,
+            scenario,
+            n,
+            context,
+            max_tokens,
+            label,
+            seen,
+            accepted_pool,
         )
         if len(prompts) != n:
             raise GenerationShortfallError(
@@ -683,6 +856,10 @@ def _build_run_manifest_extra(
         "data": {
             "targets": {split: MVP_TARGETS[split] for split in SPLIT_ORDER},
             "candidate_pool_size": sum(MVP_TARGETS.values()),
+            "initial_candidate_target": (
+                sum(MVP_TARGETS.values())
+                + len(SCENARIOS) * SCENARIO_OVERSAMPLE_COUNT
+            ),
             "scenario_targets": {
                 "candidate_pool": _candidate_pool_distribution(),
                 "splits": _split_scenario_distributions(),
@@ -693,8 +870,10 @@ def _build_run_manifest_extra(
             "seed": split_seed,
             "deduplication": {
                 "scope": "global_candidate_pool",
-                "match_type": "exact_after_normalization",
+                "match_type": "exact_after_normalization_and_near_duplicate_ratio",
                 "normalization": "Unicode NFKC, strip ends, collapse whitespace",
+                "near_duplicate_ratio": NEAR_DUPLICATE_RATIO,
+                "near_duplicate_min_chars": NEAR_DUPLICATE_MIN_CHARS,
             },
         },
         "prompt_generation": {
@@ -705,6 +884,19 @@ def _build_run_manifest_extra(
             "max_tokens": PROMPT_GENERATION_MAX_TOKENS,
             "response_format": {"type": "json_object"},
             "thinking": {"type": PROMPT_GENERATION_THINKING_TYPE},
+            "reasoning_effort": PROMPT_GENERATION_REASONING_EFFORT,
+            "strategy": {
+                "mode": "scenario_batch_oversample_filter_backfill",
+                "oversample_per_scenario": SCENARIO_OVERSAMPLE_COUNT,
+                "backfill_batch_size": BACKFILL_BATCH_SIZE,
+                "quality_filters": [
+                    "goal_metadata_leak",
+                    "speaker_perspective",
+                    "missing_context",
+                    "exact_duplicate",
+                    "near_duplicate",
+                ],
+            },
         },
     }
 
@@ -807,6 +999,8 @@ def generate(
         persona_text=persona_text,
         examples_text=examples_text,
         persona_name=persona["name"],
+        user_name=_extract_user_name(persona),
+        role_self_references=_extract_role_self_references(persona),
     )
 
     if client is None:
