@@ -10,8 +10,8 @@ PLAN.md §1.2:
     4. 语言风格
     5. 出戏、冲突与未知事实
 
-The MVP target size is intentionally small: 100 SFT / 30 GRPO / 20 dev /
-50 eval prompts.
+The MVP target size is intentionally small: 50 SFT / 20 GRPO / 10 dev /
+20 eval prompts.
 
 All records contain only the raw user prompt. Student and Teacher answers are
 created in later stages, after these mutually isolated splits have been frozen.
@@ -54,10 +54,13 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_MODEL = "deepseek-chat"
+DEEPSEEK_MODEL = "deepseek-v4-flash"
 DEFAULT_RUN_ID = "morgana-v1"
 
-MVP_TARGETS: dict[str, int] = {"sft": 100, "grpo": 30, "dev": 20, "eval": 50}
+MVP_TARGETS: dict[str, int] = {"sft": 50, "grpo": 20, "dev": 10, "eval": 20}
+PROMPT_GENERATION_MAX_TOKENS = 2048
+PROMPT_GENERATION_TEMPERATURE = 1.1
+PROMPT_GENERATION_THINKING_TYPE = "disabled"
 MIN_STYLE_EXAMPLES = 10
 MAX_STYLE_EXAMPLES = 20
 STYLE_RESPONSE_PATTERN = re.compile(r"^（[^（）\r\n]+）[^（）\r\n]+$")
@@ -264,9 +267,10 @@ def _call_teacher(
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        temperature=0.95,
+        temperature=PROMPT_GENERATION_TEMPERATURE,
         max_tokens=max_tokens,
         response_format={"type": "json_object"},
+        extra_body={"thinking": {"type": PROMPT_GENERATION_THINKING_TYPE}},
     )
     return response.choices[0].message.content or ""
 
@@ -561,7 +565,7 @@ def generate(
         model,
         MVP_TARGETS["sft"],
         context,
-        max_tokens=1536,
+        max_tokens=PROMPT_GENERATION_MAX_TOKENS,
         label="SFT",
         seen=seen,
     )
@@ -570,7 +574,7 @@ def generate(
         model,
         MVP_TARGETS["grpo"],
         context,
-        max_tokens=1536,
+        max_tokens=PROMPT_GENERATION_MAX_TOKENS,
         label="GRPO",
         seen=seen,
     )
@@ -579,7 +583,7 @@ def generate(
         model,
         MVP_TARGETS["dev"],
         context,
-        max_tokens=1536,
+        max_tokens=PROMPT_GENERATION_MAX_TOKENS,
         label="DEV",
         seen=seen,
     )
@@ -588,7 +592,7 @@ def generate(
         model,
         MVP_TARGETS["eval"],
         context,
-        max_tokens=1536,
+        max_tokens=PROMPT_GENERATION_MAX_TOKENS,
         label="EVAL",
         seen=seen,
     )

@@ -14,7 +14,12 @@ from roleplay.inference import BaselineGenerationError
 from roleplay.sft_data import (
     DEFAULT_STUDENT_REVISION,
     StudentAwareSFTError,
+    TEACHER_MAX_TOKENS,
+    TEACHER_REASONING_EFFORT,
+    TEACHER_TEMPERATURE,
+    TEACHER_THINKING_TYPE,
     build_teacher_system,
+    call_teacher_with_retry,
     load_style_examples,
     main,
     parse_teacher_audit,
@@ -254,6 +259,17 @@ class StudentAwarePipelineTests(unittest.TestCase):
             "示例回答9",
             teacher.chat.completions.calls[0]["messages"][0]["content"],
         )
+        teacher_call = teacher.chat.completions.calls[0]
+        self.assertNotIn("temperature", teacher_call)
+        self.assertEqual(teacher_call["max_tokens"], TEACHER_MAX_TOKENS)
+        self.assertEqual(
+            teacher_call["extra_body"]["thinking"]["type"],
+            TEACHER_THINKING_TYPE,
+        )
+        self.assertEqual(
+            teacher_call["extra_body"]["reasoning_effort"],
+            TEACHER_REASONING_EFFORT,
+        )
         self.assertFalse(
             student.chat.completions.calls[0]["extra_body"]["chat_template_kwargs"][
                 "enable_thinking"
@@ -267,10 +283,36 @@ class StudentAwarePipelineTests(unittest.TestCase):
             metadata["student"]["revision"], DEFAULT_STUDENT_REVISION
         )
         self.assertEqual(metadata["teacher"]["model"], "teacher")
+        self.assertIsNone(metadata["teacher"]["temperature"])
+        self.assertIsNone(TEACHER_TEMPERATURE)
+        self.assertIsNone(metadata["teacher"]["top_p"])
+        self.assertEqual(metadata["teacher"]["max_tokens"], 4096)
+        self.assertEqual(metadata["teacher"]["thinking"], {"type": "enabled"})
+        self.assertEqual(metadata["teacher"]["reasoning_effort"], "high")
         self.assertEqual(
             set(metadata["inputs"]),
             {"persona_sha256", "style_examples_sha256", "prompts_sha256"},
         )
+
+    def test_teacher_retry_uses_flash_reasoning_configuration(self):
+        teacher = _FakeClient([(audit_json("回答"), "stop")])
+        audit, attempts = call_teacher_with_retry(
+            teacher,
+            "deepseek-v4-flash",
+            "system",
+            "问题",
+            "回答",
+            item_label="样本 1",
+        )
+
+        self.assertEqual(attempts, 1)
+        self.assertEqual(audit["improved_assistant"], "回答")
+        call = teacher.chat.completions.calls[0]
+        self.assertEqual(call["model"], "deepseek-v4-flash")
+        self.assertEqual(call["max_tokens"], 4096)
+        self.assertNotIn("temperature", call)
+        self.assertEqual(call["extra_body"]["thinking"], {"type": "enabled"})
+        self.assertEqual(call["extra_body"]["reasoning_effort"], "high")
 
     def test_failure_keeps_aligned_prefix_and_next_run_resumes(self):
         self.write_prompts("问题一", "问题二")

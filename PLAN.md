@@ -31,8 +31,11 @@
 
 - 基础模型：`Qwen/Qwen3.5-2B`，训练时由 ms-swift 支持的后端以 4-bit 加载
 - Student 本地推理：`mlx-community/Qwen3.5-2B-4bit`，revision`674aaa7240b91e8012fcad5d791b7dfe5ba90207`
+- Teacher：`deepseek-v4-flash`
 - 训练框架：`ms-swift`
-- 训练与推理：`enable_thinking=false`
+- Student 训练与推理：`enable_thinking=false`
+- Teacher Prompt 生成：`thinking.type=disabled`，`temperature=1.1`
+- Teacher SFT 纠错：`thinking.type=enabled`，`reasoning_effort=high`
 
 在完整实践过程中验证的核心问题：
 
@@ -130,6 +133,10 @@ SFT、Dev、GRPO、Eval 分别用于监督训练、过程观察、强化学习�
 Eval 不进入 SFT。首次切分后保存随机种子和各 split 文件。学习阶段只要求避免明确的数据
 泄漏，不要求全量近似重复审计。
 
+Prompt 生成使用 `deepseek-v4-flash`，关闭 thinking 以保留采样参数的多样性控制：
+`thinking.type=disabled`、`temperature=1.1`、`max_tokens=2048`。此阶段只生成用户
+Prompt，不生成角色回答。
+
 ## 1.3 Pilot 与 Teacher-corrected SFT
 
 核心链路：
@@ -146,6 +153,9 @@ Teacher 要求：
 - 分别检查角色一致性、格式一致性和对话质量。
 - 合格回答原样保留，不合格回答做最小充分修改。
 - 不补充 persona 和用户消息之外的事实；未知信息应明确保留为未知。
+
+Teacher 纠错使用 `deepseek-v4-flash`，开启 thinking 并设置 `reasoning_effort=high`，
+`max_tokens=4096`。thinking 模式下不设置 `temperature` 或 `top_p`，以审核稳定性优先。
 
 正式生成前先运行 5 条 Pilot，五类场景各 1 条。人工检查 persona、风格、格式和 Teacher
 改写质量；如发现系统性问题，修改输入或 rubric 后重新运行。Pilot 只用于验证链路，不进入

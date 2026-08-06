@@ -46,8 +46,10 @@ from .persona import PersonaValidationError, load_persona, render_persona_prompt
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_STUDENT_REVISION = "674aaa7240b91e8012fcad5d791b7dfe5ba90207"
 MAX_TEACHER_ATTEMPTS = 3
-TEACHER_MAX_TOKENS = 1536
-TEACHER_TEMPERATURE = 0.2
+TEACHER_MAX_TOKENS = 4096
+TEACHER_TEMPERATURE: float | None = None
+TEACHER_THINKING_TYPE = "enabled"
+TEACHER_REASONING_EFFORT = "high"
 TEACHER_PROMPT_VERSION = 3
 METADATA_SCHEMA_VERSION = 1
 DECISIONS = {"keep", "light_rewrite", "rewrite"}
@@ -204,19 +206,25 @@ def call_teacher_with_retry(
     last_error = "未知错误"
     for attempt in range(1, MAX_TEACHER_ATTEMPTS + 1):
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
+            request = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": build_teacher_user_prompt(user, baseline),
                     },
                 ],
-                temperature=TEACHER_TEMPERATURE,
-                max_tokens=TEACHER_MAX_TOKENS,
-                response_format={"type": "json_object"},
-            )
+                "max_tokens": TEACHER_MAX_TOKENS,
+                "response_format": {"type": "json_object"},
+                "extra_body": {
+                    "thinking": {"type": TEACHER_THINKING_TYPE},
+                    "reasoning_effort": TEACHER_REASONING_EFFORT,
+                },
+            }
+            if TEACHER_TEMPERATURE is not None:
+                request["temperature"] = TEACHER_TEMPERATURE
+            response = client.chat.completions.create(**request)
             choice = response.choices[0]
             finish_reason = choice.finish_reason or ""
             if finish_reason != "stop":
@@ -295,7 +303,10 @@ def build_generation_metadata(
             "model": teacher_model,
             "base_url": teacher_base_url,
             "temperature": TEACHER_TEMPERATURE,
+            "top_p": None,
             "max_tokens": TEACHER_MAX_TOKENS,
+            "thinking": {"type": TEACHER_THINKING_TYPE},
+            "reasoning_effort": TEACHER_REASONING_EFFORT,
             "prompt_version": TEACHER_PROMPT_VERSION,
         },
     }

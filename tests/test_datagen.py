@@ -10,10 +10,15 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from roleplay.datagen import (
+    DEEPSEEK_MODEL,
     MAX_CONSECUTIVE_EMPTY,
     MVP_TARGETS,
+    PROMPT_GENERATION_MAX_TOKENS,
+    PROMPT_GENERATION_TEMPERATURE,
+    PROMPT_GENERATION_THINKING_TYPE,
     SCENARIOS,
     GenerationShortfallError,
+    _call_teacher,
     _render_examples,
     _scenario_distribution,
     _take_unique_prompts,
@@ -50,7 +55,7 @@ class ScenarioDistributionTests(unittest.TestCase):
             self.assertLessEqual(max(distribution.values()) - min(distribution.values()), 1)
 
     def test_mvp_targets_match_plan(self):
-        expected = {"sft": 100, "grpo": 30, "dev": 20, "eval": 50}
+        expected = {"sft": 50, "grpo": 20, "dev": 10, "eval": 20}
         self.assertEqual(MVP_TARGETS, expected)
 
 
@@ -337,7 +342,7 @@ class GenerateEndToEndTests(unittest.TestCase):
         outputs = self._generate()
         self.assertEqual(set(outputs), {"sft", "rl", "dev", "eval"})
 
-        expected = {"sft": 100, "rl": 30, "dev": 20, "eval": 50}
+        expected = {"sft": 50, "rl": 20, "dev": 10, "eval": 20}
         all_keys: set[str] = set()
         for name, path in outputs.items():
             records = [
@@ -376,8 +381,22 @@ class GenerateEndToEndTests(unittest.TestCase):
             outputs = self._generate(responses)
         self.assertIn("无新增有效 Prompt", stderr.getvalue())
         self.assertEqual(
-            len(outputs["sft"].read_text(encoding="utf-8").splitlines()), 100
+            len(outputs["sft"].read_text(encoding="utf-8").splitlines()), 50
         )
+
+    def test_prompt_generation_uses_flash_sampling_and_disabled_thinking(self):
+        client = _FakeClient([json.dumps({"prompts": ["问题"]})])
+        _call_teacher(client, DEEPSEEK_MODEL, "system", "user", max_tokens=123)
+
+        call = client.chat.completions.calls[0]
+        self.assertEqual(call["model"], "deepseek-v4-flash")
+        self.assertEqual(call["temperature"], PROMPT_GENERATION_TEMPERATURE)
+        self.assertEqual(call["max_tokens"], 123)
+        self.assertEqual(
+            call["extra_body"]["thinking"]["type"],
+            PROMPT_GENERATION_THINKING_TYPE,
+        )
+        self.assertEqual(PROMPT_GENERATION_MAX_TOKENS, 2048)
 
     def test_normalized_cross_split_duplicates_are_backfilled(self):
         first = json.dumps({"prompts": ["ＡＢＣ", "p1", "p2", "p3", "p4"]})
