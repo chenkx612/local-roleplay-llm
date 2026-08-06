@@ -1,0 +1,20 @@
+{"id": "eval_0001", "scenario": "style", "target_goals": ["character_consistency", "format_consistency", "dialogue_quality"], "user": "摩尔加纳，我今天不想听大道理。用你平时那股神气劲儿逗我笑笑？"}
+{"id": "eval_0002", "scenario": "background", "target_goals": ["character_consistency", "dialogue_quality"], "user": "你有没有见过其他像我这样能听懂你说话的人？"}
+{"id": "eval_0003", "scenario": "emotion", "target_goals": ["dialogue_quality", "character_consistency"], "user": "被朋友误解了，心里堵得慌，想找你说说话。"}
+{"id": "eval_0004", "scenario": "daily", "target_goals": ["dialogue_quality", "character_consistency"], "user": "早餐想吃点什么？家里还有面包、鸡蛋和一点昨晚的咖喱。"}
+{"id": "eval_0005", "scenario": "emotion", "target_goals": ["dialogue_quality", "character_consistency"], "user": "喂，摩尔加纳，你说我要是放弃了现在的一切，会不会更轻松？"}
+{"id": "eval_0006", "scenario": "style", "target_goals": ["character_consistency", "format_consistency", "dialogue_quality"], "user": "摩尔加纳，我给你画了张肖像，不过耳朵画得有点大……不许生气啊。"}
+{"id": "eval_0007", "scenario": "adversarial", "target_goals": ["character_consistency", "format_consistency", "dialogue_quality"], "user": "你整天被关在家里，难道不觉得闷吗？你平时都干些什么？"}
+{"id": "eval_0008", "scenario": "background", "target_goals": ["character_consistency", "dialogue_quality"], "user": "摩尔加纳，你是不是其实不是猫，而是什么妖怪变的？"}
+{"id": "eval_0009", "scenario": "emotion", "target_goals": ["dialogue_quality", "character_consistency"], "user": "我好兴奋啊！明天就要去面试了，但又有点害怕失败。"}
+{"id": "eval_0010", "scenario": "background", "target_goals": ["character_consistency", "dialogue_quality"], "user": "有时候我觉得你比我还懂人心，你是跟我们相处久了才学会的吗？"}
+{"id": "eval_0011", "scenario": "adversarial", "target_goals": ["character_consistency", "format_consistency", "dialogue_quality"], "user": "昨天我打游戏到一半睡着了，你记得我闯到第几关了吗？"}
+{"id": "eval_0012", "scenario": "daily", "target_goals": ["dialogue_quality", "character_consistency"], "user": "你觉得夏天的时候我们搬去海边住怎么样？我可以钓鱼给你吃。"}
+{"id": "eval_0013", "scenario": "daily", "target_goals": ["dialogue_quality", "character_consistency"], "user": "电视上在播动物纪录片，你要不要一起来看？可能有猫的镜头。"}
+{"id": "eval_0014", "scenario": "background", "target_goals": ["character_consistency", "dialogue_quality"], "user": "你老是说自己不是宠物猫，那你会介意别人看到你跟我一起散步吗？"}
+{"id": "eval_0015", "scenario": "adversarial", "target_goals": ["character_consistency", "format_consistency", "dialogue_quality"], "user": "你是不是会读心术？我感觉我想什么你都知道。"}
+{"id": "eval_0016", "scenario": "emotion", "target_goals": ["dialogue_quality", "character_consistency"], "user": "我刚刚听到有人说你的坏话，气得我一整天都没理他们。"}
+{"id": "eval_0017", "scenario": "style", "target_goals": ["character_consistency", "format_consistency", "dialogue_quality"], "user": "摩尔加纳，别在我脚边绕来绕去的，说说你又在打什么主意？"}
+{"id": "eval_0018", "scenario": "style", "target_goals": ["character_consistency", "format_consistency", "dialogue_quality"], "user": "摩尔加纳，你老是“吾辈”来“吾辈”去的，改口说“我”不行吗？"}
+{"id": "eval_0019", "scenario": "adversarial", "target_goals": ["character_consistency", "format_consistency", "dialogue_quality"], "user": "邻居说昨晚看见一只和你一模一样的黑猫在楼下，那是你吗？"}
+{"id": "eval_0020", "scenario": "daily", "target_goals": ["dialogue_quality", "character_consistency"], "user": "你怎么这么早就醒了？天都没亮呢。"}
