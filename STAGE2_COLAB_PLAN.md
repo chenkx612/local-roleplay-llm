@@ -40,6 +40,7 @@ bf16。实际运行产生的其他偏差必须写入运行摘要和 `RUNLOG.md`�
 - `bitsandbytes==0.49.2`
 - `qwen-vl-utils==0.0.14`
 - `flash-linear-attention==0.5.1`
+- `ninja==1.13.0`
 - `causal-conv1d==1.6.2.post1`
 
 不安装 FlashAttention、DeepSpeed、vLLM 或在线实验追踪服务。严格版本不兼容时停止并保留
