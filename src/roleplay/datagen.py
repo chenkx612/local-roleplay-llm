@@ -2,7 +2,7 @@
 
 The teacher is prompted with the validated persona and a few in-character examples,
 then asked to emit user prompts covering the three role-play goals and five
-scenario types required by PLAN.md §1.2:
+scenario types required by PLAN.md §3.2:
 
     1. 日常对话
     2. 角色背景与人物关系

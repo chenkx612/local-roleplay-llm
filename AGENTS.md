@@ -19,6 +19,7 @@ This is a Python 3.10+ package using the `src` layout.
 - `tests/`: `unittest` suites corresponding to the main modules.
 - `data/`: JSON and JSONL persona, style, training, evaluation, and generated-output artifacts.
 - `PLAN.md`: intended training pipeline and acceptance criteria.
+- `RUNLOG.md`: actual run configurations, artifacts, observations, and retrospective evidence.
 - `ISSUES.md`: known limitations and follow-up work.
 
 Keep reusable logic in `src/roleplay/`, CLI parsing in each module's `main()`, and deterministic API behavior covered with fake clients in `tests/`.
