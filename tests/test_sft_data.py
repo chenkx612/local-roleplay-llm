@@ -422,6 +422,32 @@ class StudentAwarePipelineTests(unittest.TestCase):
             {"persona_sha256", "style_examples_sha256", "prompts_sha256"},
         )
 
+    def test_keeps_truncated_student_baseline_for_teacher_correction(self):
+        self.write_prompts("问题一")
+        truncated = "（点头）这是一条被截断的 Student 回答"
+        improved = "（点头）这是 Teacher 改写后的完整简短回答。"
+        teacher = _FakeClient(
+            [
+                (
+                    audit_json(
+                        truncated, decision="rewrite", improved=improved
+                    ),
+                    "stop",
+                )
+            ]
+        )
+        outputs = self.run_pipeline(
+            _FakeClient([(truncated, "length")]),
+            teacher,
+        )
+
+        baseline = json.loads(outputs["baseline"].read_text(encoding="utf-8"))
+        train = json.loads(outputs["train"].read_text(encoding="utf-8"))
+        self.assertEqual(baseline["finish_reason"], "length")
+        self.assertEqual(train["messages"][2]["content"], improved)
+        teacher_message = teacher.chat.completions.calls[0]["messages"][1]["content"]
+        self.assertIn("已达到输出 token 上限并被截断", teacher_message)
+
     def test_teacher_retry_uses_flash_reasoning_configuration(self):
         teacher = _FakeClient([(audit_json("（点头）回答"), "stop")])
         audit, attempts = call_teacher_with_retry(

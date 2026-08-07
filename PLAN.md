@@ -154,6 +154,14 @@ Prompt 生成使用 `deepseek-v4-flash` 并开启深度思考：`thinking.type=e
 
 ## 1.3 Pilot 与 Teacher-corrected SFT
 
+**状态：已完成（2026-08-07，`morgana-v1`）。** Pilot 已完成 5 条 / 5 个场景的
+自动检查和人工复核。正式 SFT 已完成 50 条 Student baseline、Teacher 纠错和
+训练标签；其中 44 条 Student 正常结束，6 条达到 512 output token 上限的截断
+baseline 作为 bad case 保留，均由 Teacher 改写为完整回答。Teacher 最终决策为
+48 条 `rewrite` 和 2 条 `light_rewrite`。三份正式产物逐条对齐并通过
+结构、格式、空回答、截断标记和明显复读检查；人工分层抽检 10 条，并修正了
+1 条对共同经历确认过于武断的回答。产物保存在 `data/runs/morgana-v1/`。
+
 核心链路：
 
 ```text

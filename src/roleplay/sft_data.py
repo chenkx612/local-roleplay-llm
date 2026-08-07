@@ -221,11 +221,20 @@ def build_teacher_system(persona_text: str, examples_text: str) -> str:
     )
 
 
-def build_teacher_user_prompt(user: str, baseline: str) -> str:
+def build_teacher_user_prompt(
+    user: str, baseline: str, baseline_finish_reason: str = "stop"
+) -> str:
+    truncation_note = ""
+    if baseline_finish_reason == "length":
+        truncation_note = (
+            "\n\n【Student 生成状态】\n"
+            "baseline 已达到输出 token 上限并被截断。这是需要纠正的 bad case；"
+            "请不要延续截断内容，而是改写为简洁、完整的最终回答。"
+        )
     return (
         "请审计下面这一条对话。\n\n"
         f"【用户消息】\n{user}\n\n"
-        f"【Student baseline】\n{baseline}"
+        f"【Student baseline】\n{baseline}{truncation_note}"
     )
 
 
@@ -317,6 +326,7 @@ def call_teacher_with_retry(
     baseline: str,
     *,
     item_label: str,
+    baseline_finish_reason: str = "stop",
 ) -> tuple[dict[str, Any], int]:
     """Call and validate the Teacher, retrying API and schema failures."""
     last_error = "未知错误"
@@ -328,7 +338,9 @@ def call_teacher_with_retry(
                     {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
-                        "content": build_teacher_user_prompt(user, baseline),
+                        "content": build_teacher_user_prompt(
+                            user, baseline, baseline_finish_reason
+                        ),
                     },
                 ],
                 "max_tokens": TEACHER_MAX_TOKENS,
@@ -459,7 +471,7 @@ def _validate_resume_records(
             or baseline.get("user") != user
             or not isinstance(baseline.get("assistant"), str)
             or not baseline["assistant"].strip()
-            or baseline.get("finish_reason") != "stop"
+            or baseline.get("finish_reason") not in {"stop", "length"}
             or isinstance(baseline.get("attempts"), bool)
             or not isinstance(baseline.get("attempts"), int)
             or baseline["attempts"] < 1
@@ -610,6 +622,7 @@ def run_student_aware_sft(
                 {"role": "user", "content": user},
             ],
             item_label=f"{label} Student",
+            allow_truncated=True,
         )
         audit, teacher_attempts = call_teacher_with_retry(
             teacher_client,
@@ -618,6 +631,7 @@ def run_student_aware_sft(
             user,
             answer,
             item_label=label,
+            baseline_finish_reason=finish_reason,
         )
         baseline_records.append(
             {
@@ -690,6 +704,7 @@ def build_pilot_report(
     ):
         improved = audit["improved_assistant"]
         checks = _answer_checks(improved)
+        final_answer_passed = all(checks.values())
         checks["student_finished"] = baseline["finish_reason"] == "stop"
         items.append(
             {
@@ -703,7 +718,7 @@ def build_pilot_report(
                 "improved_assistant": improved,
                 "teacher_final_checks": audit["final_checks"],
                 "automatic_checks": checks,
-                "automatic_pass": all(checks.values()),
+                "automatic_pass": final_answer_passed,
             }
         )
     score_names = sorted(SCORE_NAMES)
@@ -893,7 +908,7 @@ def rerun_pilot_teacher(
             or baseline.get("user") != prompt["user"]
             or not isinstance(baseline.get("assistant"), str)
             or not baseline["assistant"].strip()
-            or baseline.get("finish_reason") != "stop"
+            or baseline.get("finish_reason") not in {"stop", "length"}
         ):
             raise StudentAwareSFTError(f"Teacher-only baseline 第 {index} 条无效")
 
@@ -938,6 +953,7 @@ def rerun_pilot_teacher(
             prompt["user"],
             baseline["assistant"],
             item_label=f"[{index}/5]",
+            baseline_finish_reason=baseline["finish_reason"],
         )
         audit_records.append(audit)
         train_records.append(

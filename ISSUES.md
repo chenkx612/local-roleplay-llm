@@ -53,7 +53,7 @@ Prompt 前直接生成 SFT 回答，无法满足训练与评测隔离要求。
 
 **已完成修复：**
 
-- 生成参数调整为 `max_tokens=512`、`temperature=0.7`、`top_p=0.8`、`top_k=20`、`presence_penalty=1.5`，并加入 `repetition_penalty=1.1` 和 64-token 重复上下文。
+- 生成参数调整为 `max_tokens=512`、`temperature=0.7`、`top_p=0.8`、`top_k=20`、`presence_penalty=0.0`，并加入 `repetition_penalty=1.1` 和 64-token 重复上下文。对本地 Qwen3.5-2B-4bit，`1.5` 会诱发循环输出并以 `length` 截断；`0.0` 已通过同一 Prompt 的本地对照验证。
 - 保存并校验 `finish_reason`；空回答、非 `stop` 结束及明显连续复读均视为失败，每条最多尝试 3 次。
 - 任一条重试耗尽时整批非零退出，不覆盖旧产物；全部成功后才原子替换输出文件。
 - 已重新生成 50 条基线：50/50 均以 `stop` 结束、回答非空且未命中复读检测，全部首次生成成功。

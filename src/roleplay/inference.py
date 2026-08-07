@@ -19,7 +19,7 @@ MAX_TOKENS = 512
 TEMPERATURE = 0.7
 TOP_P = 0.8
 TOP_K = 20
-PRESENCE_PENALTY = 1.5
+PRESENCE_PENALTY = 0.0
 PRESENCE_CONTEXT_SIZE = 64
 REPETITION_PENALTY = 1.1
 REPETITION_CONTEXT_SIZE = 64
@@ -53,10 +53,14 @@ def generate(
     return choice.message.content or "", choice.finish_reason or ""
 
 
-def validate_answer(answer: str, finish_reason: str) -> str | None:
+def validate_answer(
+    answer: str, finish_reason: str, *, allow_truncated: bool = False
+) -> str | None:
     """Return an error message for an invalid answer, otherwise None."""
     if not answer.strip():
         return "回答为空"
+    if allow_truncated and finish_reason == "length":
+        return None
     if finish_reason != "stop":
         return f"finish_reason={finish_reason or 'missing'}"
 
@@ -73,13 +77,16 @@ def generate_with_retry(
     messages: list[dict[str, str]],
     *,
     item_label: str,
+    allow_truncated: bool = False,
 ) -> tuple[str, str, int]:
     """Generate one valid answer, retrying API and validation failures."""
     last_error = "未知错误"
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             answer, finish_reason = generate(client, model, messages)
-            validation_error = validate_answer(answer, finish_reason)
+            validation_error = validate_answer(
+                answer, finish_reason, allow_truncated=allow_truncated
+            )
             if validation_error is None:
                 return answer, finish_reason, attempt
             last_error = validation_error

@@ -93,7 +93,7 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(call["max_tokens"], 512)
         self.assertEqual(call["temperature"], 0.7)
         self.assertEqual(call["top_p"], 0.8)
-        self.assertEqual(call["presence_penalty"], 1.5)
+        self.assertEqual(call["presence_penalty"], 0.0)
         self.assertEqual(call["extra_body"]["top_k"], 20)
         self.assertEqual(call["extra_body"]["repetition_penalty"], 1.1)
         self.assertEqual(call["extra_body"]["repetition_context_size"], 64)
