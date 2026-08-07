@@ -35,7 +35,7 @@ bf16。实际运行产生的其他偏差必须写入运行摘要和 `RUNLOG.md`�
 固定依赖版本：
 
 - `ms-swift==4.4.1`
-- `transformers==5.14.1`
+- `transformers==5.12.1`
 - `peft==0.19.1`
 - `bitsandbytes==0.49.2`
 - `qwen-vl-utils==0.0.14`
