@@ -102,7 +102,8 @@ CUDA、GPU、PyTorch 和所有固定依赖的实际版本，不使用未记录�
 
 1. 选择 `2026.04` runtime 和单张 T4 GPU，检查 Python 3.12、PyTorch 2.10、CUDA 和显存。
 2. 挂载 Google Drive，从公开 GitHub `main` clone 仓库并记录实际 commit。
-3. 严格安装固定依赖，运行 `pip check` 并验证每个实际版本。
+3. 严格安装固定依赖并验证每个实际版本及其传递依赖闭包；完整 `pip check` 输出作为
+   Colab 全局环境证据保存，但不因无关预装包的冲突阻断训练。
 4. 记录 `nvidia-smi`、Python 和依赖版本。
 5. 校验 Hugging Face 模型 revision；校验训练/Dev/Base 数据条数、结构和冻结 SHA256。
 6. 用训练时 tokenizer 复核所有样本均不超过 1024 tokens。
