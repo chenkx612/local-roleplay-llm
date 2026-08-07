@@ -32,20 +32,30 @@ class BaselineGenerationError(RuntimeError):
 
 
 def generate(
-    client: OpenAI, model: str, messages: list[dict[str, str]]
+    client: OpenAI,
+    model: str,
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int = MAX_TOKENS,
+    temperature: float = TEMPERATURE,
+    top_p: float = TOP_P,
+    presence_penalty: float = PRESENCE_PENALTY,
+    presence_context_size: int = PRESENCE_CONTEXT_SIZE,
+    repetition_penalty: float = REPETITION_PENALTY,
+    repetition_context_size: int = REPETITION_CONTEXT_SIZE,
 ) -> tuple[str, str]:
     response = client.chat.completions.create(
         model=model,
         messages=messages,
-        max_tokens=MAX_TOKENS,
-        temperature=TEMPERATURE,
-        top_p=TOP_P,
-        presence_penalty=PRESENCE_PENALTY,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        presence_penalty=presence_penalty,
         extra_body={
             "top_k": TOP_K,
-            "repetition_penalty": REPETITION_PENALTY,
-            "repetition_context_size": REPETITION_CONTEXT_SIZE,
-            "presence_context_size": PRESENCE_CONTEXT_SIZE,
+            "repetition_penalty": repetition_penalty,
+            "repetition_context_size": repetition_context_size,
+            "presence_context_size": presence_context_size,
             "chat_template_kwargs": {"enable_thinking": False},
         },
     )
@@ -78,12 +88,15 @@ def generate_with_retry(
     *,
     item_label: str,
     allow_truncated: bool = False,
+    generation_config: dict[str, int | float] | None = None,
 ) -> tuple[str, str, int]:
     """Generate one valid answer, retrying API and validation failures."""
     last_error = "未知错误"
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            answer, finish_reason = generate(client, model, messages)
+            answer, finish_reason = generate(
+                client, model, messages, **(generation_config or {})
+            )
             validation_error = validate_answer(
                 answer, finish_reason, allow_truncated=allow_truncated
             )
@@ -110,6 +123,7 @@ def run_baseline(
     model: str,
     base_url: str,
     client: OpenAI | None = None,
+    generation_config: dict[str, int | float] | None = None,
 ) -> None:
     persona = load_persona(persona_path)
     system_prompt = render_persona_prompt(persona)
@@ -141,6 +155,7 @@ def run_baseline(
             model,
             messages,
             item_label=f"[{i}/{total}]",
+            generation_config=generation_config,
         )
         records.append(
             {
@@ -178,10 +193,37 @@ def main() -> None:
     )
     parser.add_argument("--model", default=DEFAULT_MODEL, help="模型名称")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="OpenAI 兼容 API 地址")
+    parser.add_argument("--max-tokens", type=int, default=MAX_TOKENS)
+    parser.add_argument("--temperature", type=float, default=TEMPERATURE)
+    parser.add_argument("--top-p", type=float, default=TOP_P)
+    parser.add_argument("--presence-penalty", type=float, default=PRESENCE_PENALTY)
+    parser.add_argument(
+        "--presence-context-size", type=int, default=PRESENCE_CONTEXT_SIZE
+    )
+    parser.add_argument("--repetition-penalty", type=float, default=REPETITION_PENALTY)
+    parser.add_argument(
+        "--repetition-context-size", type=int, default=REPETITION_CONTEXT_SIZE
+    )
     args = parser.parse_args()
 
     try:
-        run_baseline(args.persona, args.eval, args.output, args.model, args.base_url)
+        generation_config = {
+            "max_tokens": args.max_tokens,
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "presence_penalty": args.presence_penalty,
+            "presence_context_size": args.presence_context_size,
+            "repetition_penalty": args.repetition_penalty,
+            "repetition_context_size": args.repetition_context_size,
+        }
+        run_baseline(
+            args.persona,
+            args.eval,
+            args.output,
+            args.model,
+            args.base_url,
+            generation_config=generation_config,
+        )
     except (PersonaValidationError, ValueError, BaselineGenerationError) as exc:
         parser.error(str(exc))
 
