@@ -102,16 +102,19 @@ Teacher 分别检查角色、事实、风格、格式和对话质量。合格回
 
 ## 4. 阶段二：LoRA SFT
 
-**状态：未开始。**
+**状态：重训待运行。** 2026-08-08 复核发现首次 FP16 运行的 LoRA-B 权重全部保持初始化零值，
+训练无有效参数更新，不能进入 GRPO。诊断和重训方案见 `RUNLOG.md`，阻断问题见 `ISSUES.md`。
 
 目标是用一组 QLoRA 配置完成训练、保存、重新加载和 Dev 推理，观察三项目标相对 Base 的变化。
 
 ```yaml
 model: Qwen/Qwen3.5-2B
 train_type: lora
-dtype: bf16
+dtype: float32
 quant_method: bnb
 quant_bits: 4
+bnb_4bit_compute_dtype: float32
+lora_dtype: float32
 max_length: 1024
 lora_rank: 16
 lora_alpha: 32
@@ -214,9 +217,9 @@ Base、SFT 和 GRPO 使用同一 Eval、Persona、生成参数和 Judge。分别
 
 ### Milestone 2：SFT
 
-- [ ] 完成一组 QLoRA SFT，保存训练日志和 LoRA。
-- [ ] 在 Dev 上生成回答并与 Base 初步比较。
-- [ ] 将实际配置、观察、问题和决策写入 `RUNLOG.md`。
+- [ ] 完成一组**有效更新**的 QLoRA SFT，保存训练日志和 LoRA；首次 FP16 运行已判无效。
+- [ ] 在同一 Transformers 后端生成 Base/SFT Dev，通过机械门槛和人工比较。
+- [ ] 将重训实际配置、观察、问题和进入 GRPO 的决定写入 `RUNLOG.md`。
 
 ### Milestone 3：GRPO 与统一评测
 

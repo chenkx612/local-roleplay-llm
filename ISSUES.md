@@ -1,4 +1,4 @@
-# 阶段一 Review Issues
+# Review Issues
 
 ## 优先级说明
 
@@ -9,7 +9,56 @@
 
 ## 待解决问题
 
-暂无。阶段一问题已于 2026-08-07 完成处理或形成明确决策，可以进入阶段二。
+阶段一问题已于 2026-08-07 完成处理或形成明确决策。阶段二首次运行无有效参数更新，当前
+阻断进入 GRPO；必须完成重训并通过机械和人工验收。
+
+### P0｜首次 SFT 的 LoRA-B 全部保持初始化零值
+
+**位置：** `output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/full/logging.jsonl`、
+`output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/full/checkpoint-4/adapter_model.safetensors`
+
+**现象：** 四个训练 step 的 loss 均为有限正数，但 `grad_norm` 全部为 `NaN`。直接读取最终
+safetensors 后确认：372 个 adapter 张量全部有限，186 个 LoRA-A 张量为随机初始化值，186 个
+LoRA-B 张量全部精确为零，LoRA-B 非零元素总数为 0。LoRA 初始 B 为零，因此 optimizer 没有
+形成任何有效 adapter 更新；“checkpoint 可加载并能生成”只证明序列化和 Base 推理可用。
+
+**原因判断：** 首次配置在 T4 上使用 FP16 模型、FP16 BNB compute，且 LoRA dtype 跟随默认
+行为成为 FP16。结合连续非有限 `grad_norm` 和零更新，最可能是 AMP 梯度溢出导致四次 step
+全部跳过。此前 notebook 只检查 loss 和可加载性，没有检查梯度及权重是否实际变化。
+
+**修复与验收：** 重训保持数据、模型 revision、LoRA 结构、学习率和 epoch 不变，将模型计算、
+BNB compute、LoRA 参数改为 FP32。1-step 冒烟和正式训练都必须检查有限正 `grad_norm`、全部
+LoRA-B 张量含非零元素且 adapter 全部有限；任一断言失败即停止。重训和人工效果验收完成前，
+阶段二保持未完成，禁止进入 GRPO。
+
+### P1｜首次 Transformers Dev 全量格式失败且半数截断
+
+**位置：** `output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/dev_outputs.jsonl`、
+`RUNLOG.md` 的“阶段二：LoRA SFT”
+
+**现象：** 无效 adapter 重载后生成 10/10 非空回答，但 10/10 未以规定的全角动作括号开头，
+10/10 带额外 `<think></think>` 标签，5/10 达到 256-token 上限。样本还出现过量 emoji、
+冗长转题、虚构背景、非标志性自称和情绪支持不当。由于 LoRA-B 未更新，这些输出主要反映
+上游 HF Base + Transformers 模板/采样栈，不能当作 SFT 的负向效果。
+
+**修复与验收：** 重训 notebook 会在同一 Transformers backend、同一上游 revision 下额外生成
+无 adapter Base，移除协议层空 `<think></think>` wrapper 后比较。SFT 必须 10/10 非空、
+10/10 `stop`、无机械复读、严格格式至少 8/10 且不差于同后端 Base，才进入人工复核；人工还要
+确认角色和对话质量有实际改善且无严重退化。
+
+### P2｜Base/SFT 初步比较存在推理后端混杂
+
+**位置：** `data/runs/morgana-v1/base_generation_meta.json`、
+`output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/dev_generation_meta.json`
+
+**现象：** Base 使用 MLX 转换模型和 OpenAI-compatible server；SFT 使用上游 HF revision 和
+ms-swift TransformersEngine。Persona、Dev 和主要采样参数相同，但 SFT 后端没有等价的
+`presence_penalty=0.4`，repetition context 语义不同，模板还输出 non-thinking 标签。因此阶段二
+只能判断实际部署链路下的行为变化，不能把全部差异因果归于 LoRA。
+
+**阶段决策：** 重训 notebook 先生成同一 Transformers 后端和 revision 的无 adapter Base，
+作为阶段二主要前后对照；MLX Base 仅保留为阶段一部署基线。阶段四继续使用统一推理栈生成
+Base/SFT/GRPO 输出。
 
 ## 已解决问题
 

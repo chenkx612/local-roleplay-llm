@@ -15,12 +15,13 @@ lora_rank: 16
 lora_alpha: 32
 lora_dropout: 0.05
 
-torch_dtype: float16
+torch_dtype: float32
 quant_method: bnb
 quant_bits: 4
-bnb_4bit_compute_dtype: float16
+bnb_4bit_compute_dtype: float32
 bnb_4bit_quant_type: nf4
 bnb_4bit_use_double_quant: true
+lora_dtype: float32
 
 max_length: 1024
 loss_scale: last_round+ignore_empty_think
