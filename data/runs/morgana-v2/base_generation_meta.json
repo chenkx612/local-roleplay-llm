@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "stage": "1.4_base_dev_baseline",
+  "code": {
+    "commit": "f99e5cdd27db202f153ccc7afaf89573b6b955f3",
+    "note": "运行时工作区含 seed/id 输出记录的未提交改动。"
+  },
+  "model": {
+    "name": "mlx-community/Qwen3.5-2B-4bit",
+    "revision": "674aaa7240b91e8012fcad5d791b7dfe5ba90207",
+    "backend": "mlx_lm.server OpenAI-compatible API",
+    "base_url": "http://127.0.0.1:8080/v1"
+  },
+  "environment": {
+    "python": "3.13.14",
+    "mlx": "0.32.0",
+    "mlx_lm": "0.31.3",
+    "device": "Apple M4"
+  },
+  "generation": {
+    "seed": 20260807,
+    "max_tokens": 512,
+    "temperature": 0.6,
+    "top_p": 0.8,
+    "top_k": 20,
+    "presence_penalty": 0.4,
+    "presence_context_size": 128,
+    "repetition_penalty": 1.45,
+    "repetition_context_size": 128,
+    "enable_thinking": false,
+    "max_attempts": 3
+  },
+  "inputs": {
+    "persona": {
+      "file": "inputs/persona.json",
+      "sha256": "42010082a1db9afcbf15cfed077dd59d4c7a0a0d8f44510292f00fe7ef87a10a"
+    },
+    "system_prompt": {
+      "file": "system_prompt.txt",
+      "sha256": "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
+    },
+    "dev": {
+      "file": "dev.jsonl",
+      "sha256": "74cf6d05921155cec5c070ca8a611c7a8e6751b00ca0b77a6f4e9085aeeecb22"
+    }
+  },
+  "output": {
+    "file": "base_dev_outputs.jsonl",
+    "sha256": "e3e1f00d904f8f5f27da7c8f86d68c43900a2fab498f668fe9c33b6f4b8335ac",
+    "records": 10,
+    "all_ids_aligned": true,
+    "all_finish_reason_stop": true,
+    "all_answers_nonempty": true,
+    "all_records_completed_on_first_attempt": true
+  },
+  "parameter_note": "首轮 256 token 在 dev_0010 截断；仅将 max_tokens 提升至 512 后，10 条均以 stop 结束。"
+}

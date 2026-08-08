@@ -39,7 +39,8 @@
 ### 1. 数据与 Base
 
 冻结 Persona、风格样例和 system prompt，建立彼此隔离的 SFT、GRPO、Dev、Eval 数据。
-SFT 标签由 Student 先回答、Teacher 做最小必要纠错；随后在正式训练后端上建立 Base Dev 基线。
+SFT 标签由 Student 先回答、Teacher 做最小必要纠错；随后用固定推理条件建立 Base Dev 基线，
+供后续 SFT 和 GRPO 对照。
 
 这一阶段的关键是：输入可追溯、数据无泄漏、标签可检查、Base 可作为后续公平对照。
 

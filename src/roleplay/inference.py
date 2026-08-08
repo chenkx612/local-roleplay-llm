@@ -43,22 +43,26 @@ def generate(
     presence_context_size: int = PRESENCE_CONTEXT_SIZE,
     repetition_penalty: float = REPETITION_PENALTY,
     repetition_context_size: int = REPETITION_CONTEXT_SIZE,
+    seed: int | None = None,
 ) -> tuple[str, str]:
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        presence_penalty=presence_penalty,
-        extra_body={
+    request: dict[str, object] = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "top_p": top_p,
+        "presence_penalty": presence_penalty,
+        "extra_body": {
             "top_k": TOP_K,
             "repetition_penalty": repetition_penalty,
             "repetition_context_size": repetition_context_size,
             "presence_context_size": presence_context_size,
             "chat_template_kwargs": {"enable_thinking": False},
         },
-    )
+    }
+    if seed is not None:
+        request["seed"] = seed
+    response = client.chat.completions.create(**request)
     choice = response.choices[0]
     return choice.message.content or "", choice.finish_reason or ""
 
@@ -93,7 +97,7 @@ def generate_with_retry(
     item_label: str,
     allow_truncated: bool = False,
     allow_repeated: bool = False,
-    generation_config: dict[str, int | float] | None = None,
+    generation_config: dict[str, int | float | None] | None = None,
 ) -> tuple[str, str, int]:
     """Generate one valid answer, retrying API and validation failures."""
     last_error = "未知错误"
@@ -136,14 +140,23 @@ def run_baseline(
     persona = load_persona(persona_path)
     system_prompt = render_persona_prompt(persona)
 
-    questions: list[str] = []
+    prompts: list[dict[str, str]] = []
     with eval_path.open(encoding="utf-8") as f:
         for line_no, line in enumerate(f, 1):
             if not line.strip():
                 continue
             try:
                 record = json.loads(line)
-                questions.append(record["user"])
+                user = record["user"]
+                if not isinstance(user, str) or not user.strip():
+                    raise ValueError("user 必须是非空字符串")
+                prompt = {"user": user}
+                if "id" in record:
+                    prompt_id = record["id"]
+                    if not isinstance(prompt_id, str) or not prompt_id.strip():
+                        raise ValueError("id 必须是非空字符串")
+                    prompt["id"] = prompt_id
+                prompts.append(prompt)
             except (json.JSONDecodeError, KeyError) as exc:
                 raise ValueError(f"eval 文件第 {line_no} 行格式无效: {exc}") from exc
 
@@ -151,9 +164,10 @@ def run_baseline(
         client = OpenAI(base_url=base_url, api_key="none")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    total = len(questions)
+    total = len(prompts)
     records: list[dict[str, object]] = []
-    for i, question in enumerate(questions, 1):
+    for i, prompt in enumerate(prompts, 1):
+        question = prompt["user"]
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": question},
@@ -165,14 +179,17 @@ def run_baseline(
             item_label=f"[{i}/{total}]",
             generation_config=generation_config,
         )
-        records.append(
-            {
-                "user": question,
-                "assistant": answer,
-                "finish_reason": finish_reason,
-                "attempts": attempts,
-            }
-        )
+        record: dict[str, object] = {
+            "user": question,
+            "assistant": answer,
+            "finish_reason": finish_reason,
+            "attempts": attempts,
+        }
+        if "id" in prompt:
+            record["id"] = prompt["id"]
+        if generation_config and generation_config.get("seed") is not None:
+            record["seed"] = generation_config["seed"]
+        records.append(record)
         print(f"[{i}/{total}] {question[:30]}...")
 
     temp_path = output_path.with_name(f"{output_path.name}.tmp")
@@ -212,6 +229,7 @@ def main() -> None:
     parser.add_argument(
         "--repetition-context-size", type=int, default=REPETITION_CONTEXT_SIZE
     )
+    parser.add_argument("--seed", type=int, help="固定采样 seed；省略则由服务端决定")
     args = parser.parse_args()
 
     try:
@@ -223,6 +241,7 @@ def main() -> None:
             "presence_context_size": args.presence_context_size,
             "repetition_penalty": args.repetition_penalty,
             "repetition_context_size": args.repetition_context_size,
+            "seed": args.seed,
         }
         run_baseline(
             args.persona,

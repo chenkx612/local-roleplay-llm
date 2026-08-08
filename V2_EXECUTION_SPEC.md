@@ -15,8 +15,8 @@
 - QLoRA：ms-swift + bitsandbytes 4-bit，Colab Tesla T4。
 - Teacher/Judge：`deepseek-v4-flash`，开启 thinking，并记录实际模型和请求配置。
 - Student、SFT、GRPO 生成关闭 thinking。
-- Base/SFT/GRPO 正式比较使用相同模型 revision、Transformers 后端、聊天模板和生成参数。
-- MLX 只用于本地链路检查，不作为正式前后对照。
+- Base、SFT、GRPO 比较固定使用同一模型 revision、聊天模板和生成参数；学习项目允许使用
+  同一可用推理链路，不要求为此额外搭建 Transformers 专用环境。
 
 v1 数据和模型产物保持只读。角色源设定可以复用，但必须重新保存 v2 输入快照和哈希；v1 的
 system prompt、Teacher 标签、Base 输出和 SFT adapter 不进入 v2 训练或正式评测。
@@ -68,12 +68,12 @@ Teacher 依次检查生成稳定性、角色一致性和对话质量。合格回
 
 ### 2.4 Base Dev
 
-在与 SFT 相同的 Transformers 后端和模型 revision 上，为 10 条 Dev 使用
-`20260807/20260808/20260809` 三个固定 seed 生成 30 条 Base 输出。生成参数在首次正式推理前
-冻结，后续 SFT 使用相同参数和 RNG 重置方式。
+为 10 条 Dev 用一个固定 seed 生成 10 条 Base 输出。首次推理时记录实际模型/revision、推理
+链路、seed、聊天模板和生成参数；后续 SFT 与 GRPO 沿用这些条件即可。无需为基线额外搭建
+Transformers 环境，也不要求多 seed 重复采样。
 
 进入 SFT 前必须具备：冻结输入、四个有效 split、通过人工复核的 Pilot、50 条有效 SFT 标签和
-30 条有效 Base Dev。
+10 条有效 Base Dev。
 
 ## 3. QLoRA SFT
 
@@ -111,7 +111,7 @@ enable_thinking: false
 
 ### 3.2 生成稳定性门槛
 
-使用阶段一冻结的三个 seed，在同一后端重新生成 Base/SFT 各 30 条，并按 `(seed, id)` 对齐：
+使用阶段一冻结的固定 seed 和推理条件重新生成 Base/SFT 各 10 条，并按 `id` 对齐：
 
 - 两侧输出完整、非空且数量正确。
 - SFT 的 `stop` 数不得低于 Base，截断数不得高于 Base。
@@ -181,7 +181,7 @@ SFT、GRPO 各 20 条输出。Eval 只用于最终比较。
 - [ ] 冻结 v2 Persona、风格样例、system prompt 和输入哈希。
 - [ ] 生成并验证隔离的 SFT/GRPO/Dev/Eval。
 - [ ] 完成 Pilot、50 条 Teacher-corrected SFT 和人工抽查。
-- [ ] 在统一 Transformers 后端生成三个 seed 的 Base Dev。
+- [ ] 用固定 seed 生成 10 条可读的 Base Dev，并记录推理条件。
 
 ### Milestone 2：SFT
 

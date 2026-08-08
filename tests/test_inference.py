@@ -107,6 +107,13 @@ class BaselineTests(unittest.TestCase):
             call["extra_body"]["chat_template_kwargs"]["enable_thinking"]
         )
 
+    def test_generate_passes_fixed_seed_when_requested(self):
+        client = _FakeClient([("正常回答", "stop")])
+
+        generate(client, "model", [{"role": "user", "content": "q"}], seed=7)
+
+        self.assertEqual(client.chat.completions.calls[0]["seed"], 7)
+
     def test_retries_invalid_answers_then_writes_valid_result(self):
         client = _FakeClient(
             [
@@ -131,6 +138,28 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(record["attempts"], 3)
         self.assertEqual(len(client.chat.completions.calls), 3)
         self.assertFalse(self.output_path.with_name("baseline.jsonl.tmp").exists())
+
+    def test_preserves_dev_id_and_fixed_seed(self):
+        self.eval_path.write_text(
+            json.dumps({"id": "dev_0001", "user": "今天怎么样？"}, ensure_ascii=False)
+            + "\n",
+            encoding="utf-8",
+        )
+        client = _FakeClient([("完整回答。", "stop")])
+
+        run_baseline(
+            self.persona_path,
+            self.eval_path,
+            self.output_path,
+            "model",
+            "http://unused",
+            client=client,
+            generation_config={"seed": 20260807},
+        )
+
+        record = json.loads(self.output_path.read_text(encoding="utf-8"))
+        self.assertEqual(record["id"], "dev_0001")
+        self.assertEqual(record["seed"], 20260807)
 
     def test_exhausted_retries_do_not_overwrite_existing_output(self):
         marker = '{"marker":"keep-me"}\n'

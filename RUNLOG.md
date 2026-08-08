@@ -1,5 +1,27 @@
 # morgana-v2 运行日志
 
+## 2026-08-08：阶段 1 基线范围简化
+
+- 为符合本项目“简单快速”的学习目标，取消三 seed、30 条和专用 Transformers 后端的要求。
+- Base Dev 改为：固定一个 seed，对 10 条 Dev 各生成一次；记录实际模型/revision、推理链路、
+  聊天模板和生成参数。
+- SFT、GRPO 的 Dev 对照沿用该固定条件、按 `id` 对齐；多 seed 重复采样和后端一致性不作为
+  阶段门槛。
+
+## 2026-08-08：阶段 1.4 Base Dev 基线
+
+- Base：`mlx-community/Qwen3.5-2B-4bit`，revision
+  `674aaa7240b91e8012fcad5d791b7dfe5ba90207`；本机 MLX OpenAI-compatible 服务，Apple M4。
+- 固定 seed `20260807`，关闭 thinking；其余参数为 `max_tokens=512`、`temperature=0.6`、
+  `top_p=0.8`、`top_k=20`、`presence_penalty=0.4`、`repetition_penalty=1.45`，两个 context
+  size 均为 `128`。
+- 输入：冻结的 v2 Persona、system prompt 和 10 条 Dev；完整哈希及环境版本见
+  `data/runs/morgana-v2/base_generation_meta.json`。
+- 输出：`base_dev_outputs.jsonl` 共 10 条，按 `id` 与 Dev 对齐；全部非空、首次生成成功、以
+  `stop` 结束，未命中连续复读检测。输出 SHA-256 为
+  `e3e1f00d904f8f5f27da7c8f86d68c43900a2fab498f668fe9c33b6f4b8335ac`。
+- 首轮 `max_tokens=256` 时 `dev_0010` 截断；只将上限提升为 `512` 后完成基线，不再调参。
+
 ## 2026-08-08：阶段 1.2 Prompt 数据生成与切分
 
 - 代码 commit：`cd30910a6891312e90a7e5b34f7ad4dc147ceaf4`。
