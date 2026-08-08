@@ -65,6 +65,11 @@ class ValidationTests(unittest.TestCase):
             validate_answer("我想喝茶。喝茶。喝茶。喝茶。喝茶。", "stop"),
         )
 
+    def test_can_preserve_repetition_for_teacher_correction(self):
+        self.assertIsNone(
+            validate_answer("她她她她她她", "stop", allow_repeated=True)
+        )
+
 
 class BaselineTests(unittest.TestCase):
     def setUp(self):

@@ -64,7 +64,11 @@ def generate(
 
 
 def validate_answer(
-    answer: str, finish_reason: str, *, allow_truncated: bool = False
+    answer: str,
+    finish_reason: str,
+    *,
+    allow_truncated: bool = False,
+    allow_repeated: bool = False,
 ) -> str | None:
     """Return an error message for an invalid answer, otherwise None."""
     if not answer.strip():
@@ -76,7 +80,7 @@ def validate_answer(
 
     compact = re.sub(r"\s+", "", answer)
     match = REPETITION_PATTERN.search(compact)
-    if match:
+    if match and not allow_repeated:
         return f"检测到连续复读: {match.group(1)!r}"
     return None
 
@@ -88,6 +92,7 @@ def generate_with_retry(
     *,
     item_label: str,
     allow_truncated: bool = False,
+    allow_repeated: bool = False,
     generation_config: dict[str, int | float] | None = None,
 ) -> tuple[str, str, int]:
     """Generate one valid answer, retrying API and validation failures."""
@@ -98,7 +103,10 @@ def generate_with_retry(
                 client, model, messages, **(generation_config or {})
             )
             validation_error = validate_answer(
-                answer, finish_reason, allow_truncated=allow_truncated
+                answer,
+                finish_reason,
+                allow_truncated=allow_truncated,
+                allow_repeated=allow_repeated,
             )
             if validation_error is None:
                 return answer, finish_reason, attempt

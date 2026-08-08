@@ -1,3 +1,24 @@
+# v2 Issues
+
+## P3｜Teacher-corrected SFT 仍有局部瑕疵（不阻断）
+
+**位置：** `data/runs/morgana-v2/sft_teacher_edits.jsonl`、
+`data/runs/morgana-v2/sft_train.jsonl`、`data/runs/morgana-v2/sft_label_review.md`
+
+**现象：** 50 条结构正确，最终答案无空值、乱码或明显复读，严重主客体和出戏问题已修复。
+少数标签仍有局部逻辑、轻度猜测或正典细节不稳定，但回答均可读、相关且角色身份成立。
+
+**阶段决策：** 对学习型小规模项目不构成阻断，当前数据可用于 SFT。局部瑕疵作为复盘材料保留，
+不再追加 Teacher 规则或重跑。
+
+## P2｜SFT Student 退化频率高（已被 Teacher 链路吸收）
+
+**现象：** 50 条 baseline 中 27 条截断、33 条明显复读；第 46 条在原链路中因复读
+重试耗尽，无法交给 Teacher 纠错。
+
+**已完成修复：** 只有 Teacher-corrected SFT 路径允许保留复读 baseline；Base/评测推理
+仍严格拒绝复读，Teacher 最终答案仍要求稳定。已增加回归测试。
+
 # v1 Review Issues（已封存）
 
 > 本文是 `morgana-v1` 的问题档案。v1 已于 2026-08-08 收尾，以下未完成项不再作为当前流程的

@@ -26,6 +26,7 @@ from roleplay.sft_data import (
     main,
     parse_teacher_audit,
     rerun_pilot_teacher,
+    rerun_teacher_correction,
     run_pilot,
     run_student_aware_sft,
     select_pilot_records,
@@ -105,11 +106,20 @@ class TeacherAuditTests(unittest.TestCase):
         self.assertIn("生成稳定性 stability", prompt)
         self.assertIn("角色一致性 persona", prompt)
         self.assertIn("对话质量 quality", prompt)
-        self.assertIn("合理的角色化想象", prompt)
+        self.assertIn("日常细节、幽默夸张和动作", prompt)
         self.assertIn("最小充分修改", prompt)
-        self.assertIn("用户个人经历", prompt)
+        self.assertIn("用户私人信息或共同经历", prompt)
         self.assertIn("动作括号、emoji 和固定开头不作硬性要求", prompt)
         self.assertIn("改写后必做自检", prompt)
+        self.assertIn("高度确信的作品正典知识", prompt)
+        self.assertIn("不得承认自己是游戏角色", prompt)
+        self.assertIn("动作没有长度或格式门槛", prompt)
+        self.assertIn("才能 decision=light_rewrite", prompt)
+        self.assertIn("解决 issues 中的每一项问题", prompt)
+        self.assertIn("谁接受建议、奖励或照顾", prompt)
+        self.assertIn("不得猜测‘是用户取的’", prompt)
+        self.assertIn("必须逐段扫描 baseline", prompt)
+        self.assertIn("‘本喵’或自称‘小猫’", prompt)
         self.assertIn('"stability":0', prompt)
 
     def test_parses_keep_audit_and_adds_context_fields(self):
@@ -438,6 +448,71 @@ class StudentAwarePipelineTests(unittest.TestCase):
         self.assertEqual(train["messages"][2]["content"], improved)
         teacher_message = teacher.chat.completions.calls[0]["messages"][1]["content"]
         self.assertIn("已达到输出 token 上限并被截断", teacher_message)
+
+    def test_keeps_repeated_student_baseline_for_teacher_correction(self):
+        self.write_prompts("问题一")
+        repeated = "什么都会吃的！" * 4
+        improved = "（摇了摇尾巴）吾辈才不吃猫粮，先问问本人的意见吧！"
+        teacher = _FakeClient(
+            [
+                (
+                    audit_json(
+                        repeated, decision="rewrite", improved=improved
+                    ),
+                    "stop",
+                )
+            ]
+        )
+        outputs = self.run_pipeline(
+            _FakeClient([(repeated, "stop")]), teacher
+        )
+
+        baseline = json.loads(outputs["baseline"].read_text(encoding="utf-8"))
+        self.assertEqual(baseline["assistant"], repeated)
+        self.assertEqual(baseline["attempts"], 1)
+        teacher_message = teacher.chat.completions.calls[0]["messages"][1]["content"]
+        self.assertIn(repeated, teacher_message)
+
+    def test_formal_teacher_only_rerun_keeps_frozen_baselines(self):
+        self.write_prompts("问题一", "问题二")
+        answers = ["（点头）baseline 1", "（点头）baseline 2"]
+        self.run_pipeline(
+            _FakeClient([(answer, "stop") for answer in answers]),
+            _FakeClient([(audit_json(answer), "stop") for answer in answers]),
+        )
+        baseline_path = self.root / "sft_baseline_outputs.jsonl"
+        frozen_baselines = baseline_path.read_bytes()
+        improved = ["（微笑）新回答 1", "（微笑）新回答 2"]
+
+        outputs = rerun_teacher_correction(
+            persona_path=self.persona_path,
+            examples_path=self.examples_path,
+            prompts_path=self.prompts_path,
+            output_dir=self.root,
+            student_model="student",
+            student_base_url="http://student",
+            teacher_model="teacher-v2",
+            teacher_client=_FakeClient(
+                [
+                    (
+                        audit_json(
+                            answer, decision="rewrite", improved=new_answer
+                        ),
+                        "stop",
+                    )
+                    for answer, new_answer in zip(answers, improved)
+                ]
+            ),
+        )
+
+        self.assertEqual(baseline_path.read_bytes(), frozen_baselines)
+        train = [
+            json.loads(line)
+            for line in outputs["train"].read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(
+            [record["messages"][2]["content"] for record in train], improved
+        )
 
     def test_teacher_retry_uses_flash_reasoning_configuration(self):
         teacher = _FakeClient([(audit_json("（点头）回答"), "stop")])

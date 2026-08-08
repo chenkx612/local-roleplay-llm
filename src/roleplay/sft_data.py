@@ -53,7 +53,7 @@ TEACHER_MAX_TOKENS = 4096
 TEACHER_TEMPERATURE: float | None = None
 TEACHER_THINKING_TYPE = "enabled"
 TEACHER_REASONING_EFFORT = "high"
-TEACHER_PROMPT_VERSION = 6
+TEACHER_PROMPT_VERSION = 8
 METADATA_SCHEMA_VERSION = 3
 DECISIONS = {"keep", "light_rewrite", "rewrite"}
 SCORE_NAMES = {"stability", "persona", "quality"}
@@ -176,11 +176,26 @@ def build_teacher_system(persona_text: str, examples_text: str) -> str:
         f"{persona_text}\n\n"
         "【表达风格样例】\n"
         f"{examples_text}\n\n"
-        "【创作边界】\n"
-        "1. persona 定义核心身份、性格、关系和边界，但不限制合理的角色化想象。\n"
-        "2. 可以补充与核心设定和当前对话不冲突的生活细节、幽默夸张、偏好和假设行为。\n"
-        "3. 不得擅自编造用户个人经历、重大共同关系，或与当前对话明确内容冲突的信息。\n"
-        "4. 风格样例只用于学习表达方式，不迁移其中的用户经历和重大关系。\n\n"
+        "【知识与创作边界】\n"
+        "1. persona 定义必须遵守的核心身份、性格、关系、风格和边界。\n"
+        "2. 对明确来自已有作品的角色，可以使用你高度确信的作品正典知识，"
+        "即使 persona 没有逐项列出。\n"
+        "3. 必须区分作品正典、当前对话明确建立的信息，以及未建立的用户私人信息"
+        "或共同经历。不得擅自编造第三类信息。\n"
+        "4. 不确定某个正典事实时不得猜测事件、原因、命名者、时间、地点或含义；"
+        "应以角色化方式保留不确定性或向用户确认。\n"
+        "5. 可以补充不影响身份和关系的日常细节、幽默夸张和动作。动作没有长度或格式门槛；"
+        "只有它与语境、人设或身体条件冲突，造成逻辑混乱、严重复读或挤占核心回答时才是问题。\n"
+        "6. 风格样例只用于学习表达方式，不迁移其中的用户经历和重大关系。\n\n"
+        "【事实反例】\n"
+        "用户询问名字来源，但 persona、当前对话和高度确信的正典都不能确定时，"
+        "不得猜测‘是用户取的’或编造名字含义，应承认不确定。\n"
+        "用户询问共同回忆，但 baseline 已损坏且可用信息不足时，不得为了显得具体而"
+        "自行补出地点、时间和事件细节；应使用不依赖新事实的角色化回应。\n\n"
+        "【沉浸式回应】\n"
+        "即使用户提到游戏、设定集、片场、模型、AI、玩家或作品名，最终回答也必须保持"
+        "角色内视角，不得承认自己是游戏角色、虚构人物、模型或正在扮演角色。"
+        "可以把用户的说法当作玩笑、挑衅或误解来回应。\n\n"
         "【审计规则】\n"
         "按递进关系分别用 0～10 整数评价生成稳定性 stability、角色一致性 persona "
         "和对话质量 quality，并具体列出 issues。\n"
@@ -189,7 +204,10 @@ def build_teacher_system(persona_text: str, examples_text: str) -> str:
         "角色一致性检查核心身份、性格、关系、边界和语言风格。\n"
         "对话质量检查是否直接回应用户、自然、有意义并能承接后续对话。\n"
         "回答完全合格时 decision=keep，improved_assistant 必须逐字保留 baseline。\n"
-        "只需少量修正时 decision=light_rewrite；存在明显问题时 decision=rewrite。\n"
+        "只有核心回答、事实关系、角色身份和对话逻辑已经正确，仅存在局部措辞问题时，"
+        "才能 decision=light_rewrite。\n"
+        "核心身份、重要事实、沉浸边界、主客体、相关性、复读、截断或多处逻辑有任一问题时，"
+        "必须 decision=rewrite。\n"
         "改写必须是最小充分修改，保持自然、相关、可继续对话，不要解释审计过程。\n\n"
         "【改写后必做自检】\n"
         "1. 只有改写后回答依次通过生成稳定性、角色一致性和对话质量检查，"
@@ -197,7 +215,14 @@ def build_teacher_system(persona_text: str, examples_text: str) -> str:
         "2. 自称、用户称呼和关系用语必须遵循 persona，"
         "不得为了文艺感或变化用词而自行替换。\n"
         "3. 先判断用户的核心问题。用户要求具体选择、判断、建议或信息时，"
-        "improved_assistant 必须给出直接答案，角色化吐槽不能代替答案。\n\n"
+        "improved_assistant 必须给出直接答案，角色化吐槽不能代替答案。\n"
+        "4. improved_assistant 必须解决 issues 中的每一项问题，不得只修改其中一部分或引入新问题。\n"
+        "5. 检查谁在行动，谁接受建议、奖励或照顾，食物、物品和能力是否适合对应对象。\n"
+        "6. 如果 issues 涉及核心身份、重要事实、沉浸边界、主客体或多处逻辑问题，"
+        "decision 不得是 light_rewrite。\n"
+        "7. 必须逐段扫描 baseline 中的每个自称、身份词、关系词和能力断言；"
+        "任一处与 persona 冲突都是核心问题，不能因为其他段落较好而忽略。"
+        "例如 persona 要求固定自称并拒绝被当成普通猫时，‘本喵’或自称‘小猫’属于身份问题。\n\n"
         "【输出格式】\n"
         "只输出 JSON，不要 markdown。字段必须严格为：\n"
         '{"scores":{"stability":0,"persona":0,"quality":0},'
@@ -607,6 +632,7 @@ def run_student_aware_sft(
             ],
             item_label=f"{label} Student",
             allow_truncated=True,
+            allow_repeated=True,
         )
         audit, teacher_attempts = call_teacher_with_retry(
             teacher_client,
@@ -855,7 +881,7 @@ def run_pilot(
     return outputs
 
 
-def rerun_pilot_teacher(
+def rerun_teacher_correction(
     persona_path: Path,
     examples_path: Path,
     prompts_path: Path,
@@ -869,26 +895,22 @@ def rerun_pilot_teacher(
     teacher_api_key: str | None = None,
     teacher_client: OpenAI | None = None,
 ) -> dict[str, Path]:
-    """Freeze Pilot baselines and rerun only Teacher correction and QA."""
-    pilot_records = select_pilot_records(prompts_path)
-    pilot_prompts_path = output_dir / "pilot_prompts.jsonl"
+    """Freeze complete Student baselines and rerun only Teacher correction."""
+    prompt_records = load_prompt_records(prompts_path)
     baseline_path = output_dir / "sft_baseline_outputs.jsonl"
     previous_metadata_path = output_dir / "sft_generation_meta.json"
-    if not all(
-        path.exists()
-        for path in (pilot_prompts_path, baseline_path, previous_metadata_path)
-    ):
+    if not all(path.exists() for path in (baseline_path, previous_metadata_path)):
         raise StudentAwareSFTError(
-            "Teacher-only 需要已完成的 Pilot prompt、baseline 和 metadata"
+            "Teacher-only 需要已完成的 baseline 和 metadata"
         )
-    if _load_jsonl(pilot_prompts_path) != pilot_records:
-        raise StudentAwareSFTError("现有 Pilot prompt 与当前 SFT 选样不一致")
 
     baseline_records = _load_jsonl(baseline_path)
-    if len(baseline_records) != 5:
-        raise StudentAwareSFTError("Teacher-only 要求 5 条完整 baseline")
+    if len(baseline_records) != len(prompt_records):
+        raise StudentAwareSFTError(
+            f"Teacher-only 要求 {len(prompt_records)} 条完整 baseline"
+        )
     for index, (prompt, baseline) in enumerate(
-        zip(pilot_records, baseline_records), 1
+        zip(prompt_records, baseline_records), 1
     ):
         if (
             not isinstance(baseline, dict)
@@ -907,7 +929,7 @@ def rerun_pilot_teacher(
     metadata = build_generation_metadata(
         persona_path,
         examples_path,
-        pilot_prompts_path,
+        prompts_path,
         student_model=student_model,
         student_revision=student_revision,
         student_base_url=student_base_url,
@@ -930,8 +952,9 @@ def rerun_pilot_teacher(
 
     audit_records: list[dict[str, Any]] = []
     train_records: list[dict[str, Any]] = []
+    total = len(prompt_records)
     for index, (prompt, baseline) in enumerate(
-        zip(pilot_records, baseline_records), 1
+        zip(prompt_records, baseline_records), 1
     ):
         audit, attempts = call_teacher_with_retry(
             teacher_client,
@@ -939,7 +962,7 @@ def rerun_pilot_teacher(
             teacher_system,
             prompt["user"],
             baseline["assistant"],
-            item_label=f"[{index}/5]",
+            item_label=f"[{index}/{total}]",
             baseline_finish_reason=baseline["finish_reason"],
         )
         audit_records.append(audit)
@@ -952,7 +975,7 @@ def rerun_pilot_teacher(
                 ]
             }
         )
-        print(f"[{index}/5] {audit['decision']} (Teacher {attempts} 次)")
+        print(f"[{index}/{total}] {audit['decision']} (Teacher {attempts} 次)")
 
     audit_path = output_dir / "sft_teacher_edits.jsonl"
     train_path = output_dir / "sft_train.jsonl"
@@ -964,18 +987,52 @@ def rerun_pilot_teacher(
             previous_metadata_path: [metadata],
         }
     )
-    report_path, review_path = _publish_pilot_report(
-        output_dir, pilot_records, baseline_records, audit_records
-    )
     return {
-        "prompts": pilot_prompts_path,
+        "prompts": prompts_path,
         "baseline": baseline_path,
         "audit": audit_path,
         "train": train_path,
         "metadata": previous_metadata_path,
-        "report": report_path,
-        "review": review_path,
     }
+
+
+def rerun_pilot_teacher(
+    persona_path: Path,
+    examples_path: Path,
+    prompts_path: Path,
+    output_dir: Path,
+    student_model: str,
+    student_base_url: str,
+    teacher_model: str,
+    **kwargs: Any,
+) -> dict[str, Path]:
+    """Freeze Pilot baselines, rerun Teacher correction, and refresh QA."""
+    pilot_records = select_pilot_records(prompts_path)
+    pilot_prompts_path = output_dir / "pilot_prompts.jsonl"
+    if not pilot_prompts_path.exists():
+        raise StudentAwareSFTError("Teacher-only 需要已完成的 Pilot prompt")
+    if _load_jsonl(pilot_prompts_path) != pilot_records:
+        raise StudentAwareSFTError("现有 Pilot prompt 与当前 SFT 选样不一致")
+
+    outputs = rerun_teacher_correction(
+        persona_path=persona_path,
+        examples_path=examples_path,
+        prompts_path=pilot_prompts_path,
+        output_dir=output_dir,
+        student_model=student_model,
+        student_base_url=student_base_url,
+        teacher_model=teacher_model,
+        **kwargs,
+    )
+    baseline_records = _load_jsonl(outputs["baseline"])
+    audit_records = _load_jsonl(outputs["audit"])
+    report_path, review_path = _publish_pilot_report(
+        output_dir, pilot_records, baseline_records, audit_records
+    )
+    outputs.update(
+        {"prompts": pilot_prompts_path, "report": report_path, "review": review_path}
+    )
+    return outputs
 
 
 def main() -> None:
@@ -1034,11 +1091,9 @@ def main() -> None:
     parser.add_argument(
         "--teacher-only",
         action="store_true",
-        help="冻结已有 Pilot baseline，只重跑 Teacher 纠错（需与 --pilot 同用）",
+        help="冻结已有 baseline，只重跑 Teacher 纠错（可用于 Pilot 或正式数据）",
     )
     args = parser.parse_args()
-    if args.teacher_only and not args.pilot:
-        parser.error("--teacher-only 必须与 --pilot 同时使用")
     examples_path = args.style_examples or (
         args.persona.parent / "style_examples.jsonl"
     )
@@ -1057,7 +1112,8 @@ def main() -> None:
             "teacher_api_key": args.teacher_api_key,
         }
         if args.teacher_only:
-            rerun_pilot_teacher(**common_args)
+            rerunner = rerun_pilot_teacher if args.pilot else rerun_teacher_correction
+            rerunner(**common_args)
         else:
             runner = run_pilot if args.pilot else run_student_aware_sft
             runner(
