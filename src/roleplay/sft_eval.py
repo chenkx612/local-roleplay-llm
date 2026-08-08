@@ -9,7 +9,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 
-EVALUATION_SEEDS = (20260807, 20260808, 20260809)
+EVALUATION_SEEDS = (20260807,)
 PRIMARY_EVALUATION_SEED = EVALUATION_SEEDS[0]
 MANUAL_REVIEW_ORDER_SEED = 20260807
 TRUNCATED_FINISH_REASONS = frozenset({"length", "max_tokens"})

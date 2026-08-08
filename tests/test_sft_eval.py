@@ -145,13 +145,18 @@ class AutomaticGateTests(unittest.TestCase):
         self.base = make_rows(lambda _seed, _index: "(点头)本喵知道了。")
         self.sft = make_rows(lambda _seed, _index: "（点头）吾辈知道了。")
 
-    def test_aggregates_three_seeds_and_reports_concrete_issue_keys(self):
+    def test_v2_uses_the_stage1_frozen_seed(self):
+        self.assertEqual(EVALUATION_SEEDS, (20260807,))
+
+    def test_aggregates_fixed_seeds_and_reports_concrete_issue_keys(self):
         rows = copy.deepcopy(self.sft)
         rows[0]["assistant"] = "（点头）回答😀"
         rows[1]["finish_reason"] = "max_tokens"
         summary = summarize_outputs(rows, EVALUATION_SEEDS, IDS)
-        self.assertEqual(summary["overall"]["records"], 30)
-        self.assertEqual(len(summary["seeds"]), 3)
+        self.assertEqual(
+            summary["overall"]["records"], len(EVALUATION_SEEDS) * len(IDS)
+        )
+        self.assertEqual(len(summary["seeds"]), len(EVALUATION_SEEDS))
         self.assertIn("20260807:dev_0001", summary["overall"]["abnormal_symbol_ids"])
         self.assertIn("20260807:dev_0002", summary["overall"]["truncated_ids"])
         self.assertEqual(summary["seeds"][0]["seed"], 20260807)
@@ -181,7 +186,10 @@ class AutomaticGateTests(unittest.TestCase):
             self.base, sft, EVALUATION_SEEDS, IDS
         )
         self.assertEqual(gate["sft"]["overall"]["strict_format_rate"], 0.0)
-        self.assertEqual(len(gate["sft"]["overall"]["abnormal_symbol_ids"]), 30)
+        self.assertEqual(
+            len(gate["sft"]["overall"]["abnormal_symbol_ids"]),
+            len(EVALUATION_SEEDS) * len(IDS),
+        )
         self.assertTrue(gate["passed"])
 
     def test_core_gate_fails_each_stability_regression(self):
