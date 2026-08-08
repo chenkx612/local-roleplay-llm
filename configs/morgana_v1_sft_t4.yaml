@@ -41,6 +41,7 @@ data_seed: 20260807
 logging_steps: 1
 save_strategy: epoch
 save_total_limit: 1
+save_only_model: true
 report_to: none
 output_dir: output/morgana-v1/stage2-sft/full
 add_version: false
