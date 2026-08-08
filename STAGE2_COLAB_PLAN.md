@@ -1,8 +1,5 @@
 # 阶段二：Colab T4 LoRA SFT 执行计划
 
-> **Superseded（2026-08-08）：** 本文件只保留历史审计证据。当前主路径见 `PLAN.md`、
-> `configs/morgana_v1_sft_mlx.json` 和 `roleplay-posttrain`，不得再用本方案产生 GRPO 起点。
-
 ## 1. 目标
 
 在 Google Colab 单张 NVIDIA T4 上，用一组固定配置完成最小且可审计的 SFT 链路：

@@ -6,53 +6,11 @@
 
 # Run：morgana-v1
 
-## 2026-08-08｜Mac/MLX 迁移实现
-
-迁移代码已完成，实机训练尚未执行，因此本节只记录实现和离线验证，不预写训练成功结论。
-
-- 主模型统一为 `mlx-community/Qwen3.5-2B-4bit` revision
-  `674aaa7240b91e8012fcad5d791b7dfe5ba90207`；Base/SFT/GRPO/Eval 不再混用后端。
-- 环境固定 Python 3.13、`mlx==0.32.0`、`mlx-lm==0.31.3`，完整解析闭包见
-  `requirements-mac.lock`。
-- SFT 主配置见 `configs/morgana_v1_sft_mlx.json`：24 层、rank 16、scale 2、dropout 0.05、
-  150 microbatch、累积 10、15 update、3 epochs、assistant-only loss。
-- GRPO 主配置见 `configs/morgana_v1_grpo_mlx.json`：20 组、每组 4 候选、256 completion token、
-  `beta=0`、旧策略比率、completion-only clipped loss。
-- `roleplay-posttrain` 提供 `doctor/sft/gate-sft/reward-preview/grpo/evaluate` 六个阶段；SFT 三层
-  门槛和 5 组奖励人工签字默认拒绝，云端回退只生成清单。
-- `python -m unittest discover -s tests -v`：120 项测试全部通过。当前执行沙箱没有可用 Metal
-  device，未运行模型梯度和峰值内存实测；下一条有效证据必须来自真实本机的 `doctor` 与训练产物。
-
-原 Colab/T4/ms-swift 路径和三次尝试保留为无效历史证据；notebook、T4 配置及下文诊断均为
-superseded，不得作为 GRPO 起点。已有一次可完整复核的 run 继续在下文保留详细指标，其余尝试
-不补写为成功运行。
-
-实机执行模板（固定同一个 run id）：
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements-mac.txt
-python -m pip install -e .
-
-roleplay-posttrain doctor --run-id <run-id>
-roleplay-posttrain sft --run-id <run-id>
-# 填写 sft/manual_review_results.json
-roleplay-posttrain gate-sft --run-id <run-id>
-DEEPSEEK_API_KEY=... roleplay-posttrain reward-preview --run-id <run-id>
-# 人工检查 5 组并填写 grpo/reward_review_results.json
-DEEPSEEK_API_KEY=... roleplay-posttrain grpo --run-id <run-id>
-roleplay-posttrain evaluate --run-id <run-id>
-```
-
-训练时须接通电源、关闭其他模型服务和高内存应用并禁止系统睡眠。任何命令失败后先检查该 run
-的阶段摘要，不得把存在 `*.tmp`、缺少通过摘要或状态为 `local_grpo_blocked` 的目录当作 checkpoint。
-
 ## 基本信息
 
 - 角色：摩尔加纳
 - 阶段一完成日期：2026-08-07
-- 状态：阶段一已完成；Mac/MLX 迁移实现完成，SFT/GRPO/Eval 实机运行待执行
+- 状态：阶段一已完成；阶段二首次运行无效，等待重训；阶段三、四未开始
 - 阶段一产物目录：`data/runs/morgana-v1/`
 - 阶段二产物目录：`output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/`
 - 历史产物：`data/archive/pre-runs-legacy/`，不参与本轮训练或评测
@@ -62,8 +20,8 @@ roleplay-posttrain evaluate --run-id <run-id>
 - Prompt、Teacher 纠错：`deepseek-v4-flash`
 - Student/Base 本地推理：`mlx-community/Qwen3.5-2B-4bit`
 - Student revision：`674aaa7240b91e8012fcad5d791b7dfe5ba90207`
-- 后训练与评测基座：`mlx-community/Qwen3.5-2B-4bit@674aaa...`，统一使用 MLX
-- 原 `Qwen/Qwen3.5-2B` + ms-swift/BNB 路径已 superseded
+- 后续训练基座：`Qwen/Qwen3.5-2B`，使用 ms-swift/BNB 4-bit QLoRA
+- 不将 MLX 转换权重直接作为训练 checkpoint；本地推理与训练使用同源模型的不同加载方式
 
 ## 阶段一：输入与数据
 

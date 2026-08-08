@@ -1,4 +1,3 @@
-# Superseded historical T4/ms-swift configuration. Do not use for the main run.
 model: Qwen/Qwen3.5-2B
 model_revision: 965dcc54bc9c0591873df0e9869c056a54d323d1
 use_hf: true

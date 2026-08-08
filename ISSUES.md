@@ -9,24 +9,10 @@
 
 ## 待解决问题
 
-阶段一问题已于 2026-08-07 完成处理或形成明确决策。原 Colab 后训练路径已 superseded；当前
-阻断项是 Mac/MLX 尚未在可用 Metal 的真实本机会话中完成 SFT、人工门槛和 GRPO。
+阶段一问题已于 2026-08-07 完成处理或形成明确决策。阶段二首次运行无有效参数更新，当前
+阻断进入 GRPO；必须完成重训并通过机械和人工验收。
 
-### P0｜Mac/MLX 只完成实现，尚无实机训练证据
-
-**位置：** `src/roleplay/posttrain.py`、`src/roleplay/mlx_backend.py`、
-`configs/morgana_v1_sft_mlx.json`、`configs/morgana_v1_grpo_mlx.json`
-
-**现状：** 配置、六阶段 CLI、SFT 梯度预检、最小 GRPO、奖励事务、原子产物、内存降级和统一
-评测均已实现，120 项离线测试通过。当前自动化沙箱没有可用 Metal device，无法提供真实梯度、
-adapter 更新、峰值内存或生成质量证据。
-
-**解除条件：** 在接通电源、关闭其他模型服务的 M4 Mac 上按
-`doctor → sft → gate-sft → reward-preview → grpo → evaluate` 执行。SFT/GRPO 各自只有在对应
-technical、自动、人工和 adapter 验收产物通过后才算完成；本机 GRPO 若触发
-`local_grpo_blocked`，只算迁移验收完成，不算学习闭环完成。
-
-### P0（历史、superseded）｜首次 SFT 的 LoRA-B 全部保持初始化零值
+### P0｜首次 SFT 的 LoRA-B 全部保持初始化零值
 
 **位置：** `output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/full/logging.jsonl`、
 `output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/full/checkpoint-4/adapter_model.safetensors`
@@ -40,11 +26,12 @@ LoRA-B 张量全部精确为零，LoRA-B 非零元素总数为 0。LoRA 初始 B
 行为成为 FP16。结合连续非有限 `grad_norm` 和零更新，最可能是 AMP 梯度溢出导致四次 step
 全部跳过。此前 notebook 只检查 loss 和可加载性，没有检查梯度及权重是否实际变化。
 
-**最终决策：** 不再继续 Colab/ms-swift 重训。Mac/MLX 正式训练前先做一次临时 optimizer
-update，并在 150 microbatch/15 update 全程阻断非有限梯度；最终要求全部 LoRA-B 非零、adapter
-全有限且可重载。原 checkpoint 永久禁止作为 GRPO 起点。
+**修复与验收：** 第三轮保持数据、模型 revision、LoRA 结构、学习率和 FP32 精度配置不变，
+仅将训练从 1 epoch 提升为 3 epochs。正式训练必须得到约 12 个有限正 `grad_norm`、全部 LoRA-B
+张量含非零元素且 adapter 全部有限；任一断言失败即停止。重训和两层行为验收完成前，阶段二
+保持未完成，禁止进入 GRPO。
 
-### P1（历史、superseded）｜首次 Transformers Dev 全量格式失败且半数截断
+### P1｜首次 Transformers Dev 全量格式失败且半数截断
 
 **位置：** `output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/dev_outputs.jsonl`、
 `RUNLOG.md` 的“阶段二：LoRA SFT”
@@ -60,7 +47,7 @@ update，并在 150 microbatch/15 update 全程阻断非有限梯度；最终要
 主 seed 匿名人工比较还须达到胜负、严重问题和 emotion 专项门槛。任一行为门槛失败都归档证据，
 但不得进入 GRPO。
 
-### P2（已由迁移消除）｜Base/SFT 初步比较存在推理后端混杂
+### P2｜Base/SFT 初步比较存在推理后端混杂
 
 **位置：** `data/runs/morgana-v1/base_generation_meta.json`、
 `output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/dev_generation_meta.json`
@@ -70,8 +57,9 @@ ms-swift TransformersEngine。Persona、Dev 和主要采样参数相同，但 SF
 `presence_penalty=0.4`，repetition context 语义不同，模板还输出 non-thinking 标签。因此阶段二
 只能判断实际部署链路下的行为变化，不能把全部差异因果归于 LoRA。
 
-**阶段决策：** Base、SFT、GRPO 全部改为同一 MLX 模型 revision、chat template、采样器和推理
-实现；旧的 Transformers 对照只保留为不可归因的历史观察。
+**阶段决策：** 重训 notebook 先生成同一 Transformers 后端和 revision 的无 adapter Base，
+作为阶段二主要前后对照；MLX Base 仅保留为阶段一部署基线。阶段四继续使用统一推理栈生成
+Base/SFT/GRPO 输出。
 
 ## 已解决问题
 
