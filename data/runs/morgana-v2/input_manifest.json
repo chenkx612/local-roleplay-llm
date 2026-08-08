@@ -1,0 +1,102 @@
+{
+  "persona": {
+    "file": "inputs/persona.json",
+    "sha256": "42010082a1db9afcbf15cfed077dd59d4c7a0a0d8f44510292f00fe7ef87a10a"
+  },
+  "style_examples": {
+    "file": "inputs/style_examples.jsonl",
+    "sha256": "b8fa53f494d3202fe80aad90be4e2db098f56ac080bc152644ba3661e6104250"
+  },
+  "system_prompt": {
+    "file": "system_prompt.txt",
+    "sha256": "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
+  },
+  "schema_version": 1,
+  "stage": "1.2_data_specs_and_splits",
+  "data": {
+    "targets": {
+      "sft": 50,
+      "grpo": 20,
+      "dev": 10,
+      "eval": 20
+    },
+    "candidate_pool_size": 100,
+    "initial_candidate_target": 125,
+    "scenario_targets": {
+      "candidate_pool": {
+        "daily": 20,
+        "background": 20,
+        "emotion": 20,
+        "style": 20,
+        "adversarial": 20
+      },
+      "splits": {
+        "sft": {
+          "daily": 10,
+          "background": 10,
+          "emotion": 10,
+          "style": 10,
+          "adversarial": 10
+        },
+        "grpo": {
+          "daily": 4,
+          "background": 4,
+          "emotion": 4,
+          "style": 4,
+          "adversarial": 4
+        },
+        "dev": {
+          "daily": 2,
+          "background": 2,
+          "emotion": 2,
+          "style": 2,
+          "adversarial": 2
+        },
+        "eval": {
+          "daily": 4,
+          "background": 4,
+          "emotion": 4,
+          "style": 4,
+          "adversarial": 4
+        }
+      }
+    }
+  },
+  "split": {
+    "method": "shared_candidate_pool_then_seeded_per_scenario_split",
+    "seed": 20260806,
+    "deduplication": {
+      "scope": "global_candidate_pool",
+      "match_type": "exact_after_normalization_and_near_duplicate_ratio",
+      "normalization": "Unicode NFKC, strip ends, collapse whitespace",
+      "near_duplicate_ratio": 0.88,
+      "near_duplicate_min_chars": 20
+    }
+  },
+  "prompt_generation": {
+    "provider": "deepseek",
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-v4-flash",
+    "temperature": null,
+    "max_tokens": 8192,
+    "response_format": {
+      "type": "json_object"
+    },
+    "thinking": {
+      "type": "enabled"
+    },
+    "reasoning_effort": "high",
+    "strategy": {
+      "mode": "scenario_batch_oversample_filter_backfill",
+      "oversample_per_scenario": 5,
+      "backfill_batch_size": 5,
+      "quality_filters": [
+        "goal_metadata_leak",
+        "speaker_perspective",
+        "missing_context",
+        "exact_duplicate",
+        "near_duplicate"
+      ]
+    }
+  }
+}
