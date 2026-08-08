@@ -14,6 +14,13 @@ roleplay-chat = "roleplay.chat:main"
 roleplay-datagen = "roleplay.datagen:main"
 roleplay-inference = "roleplay.inference:main"
 roleplay-sft-data = "roleplay.sft_data:main"
+roleplay-posttrain = "roleplay.posttrain:main"
+
+[project.optional-dependencies]
+mac-train = [
+  "mlx==0.32.0",
+  "mlx-lm[train]==0.31.3",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

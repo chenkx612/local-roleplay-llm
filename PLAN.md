@@ -31,10 +31,15 @@
 
 ## 2. 技术基线与文档职责
 
-- 训练基座：`Qwen/Qwen3.5-2B`，由 ms-swift/BNB 以 4-bit 加载。
-- 本地 Student 推理：`mlx-community/Qwen3.5-2B-4bit`。
+- Base、SFT、GRPO 与统一评测均固定为
+  `mlx-community/Qwen3.5-2B-4bit@674aaa7240b91e8012fcad5d791b7dfe5ba90207`。
+- 本机 M4 Mac 是主运行环境；SFT 使用 `mlx-lm==0.31.3` 的 QLoRA 组件，GRPO 使用仓库内
+  最小 MLX 实现。Python 固定 3.13、`mlx==0.32.0`。
 - Teacher/Judge：`deepseek-v4-flash`。
 - Student 训练与推理关闭 thinking；Teacher 开启 thinking，并使用 `reasoning_effort=high`。
+
+原 Colab notebook、T4/ms-swift/BNB 配置和三次运行只保留为无效历史证据，均标记为
+superseded，不再是主训练或对照路径。
 
 文档各自只承担一种职责：
 
@@ -102,37 +107,37 @@ Teacher 分别检查角色、事实、风格、格式和对话质量。合格回
 
 ## 4. 阶段二：LoRA SFT
 
-**状态：重训待运行。** 2026-08-08 复核发现首次 FP16 运行的 LoRA-B 权重全部保持初始化零值，
-训练无有效参数更新，不能进入 GRPO。诊断和重训方案见 `RUNLOG.md`，阻断问题见 `ISSUES.md`。
+**状态：Mac/MLX 实现完成，实机训练待运行。** 2026-08-08 复核发现 Colab 路径没有形成可接受的
+有效训练；该路径已被统一 MLX 后端取代。诊断和历史证据见 `RUNLOG.md` 与 `ISSUES.md`。
 
 目标是用一组 QLoRA 配置完成训练、保存、重新加载和 Dev 推理，观察三项目标相对 Base 的变化。
 
 ```yaml
-model: Qwen/Qwen3.5-2B
-train_type: lora
-dtype: float32
-quant_method: bnb
-quant_bits: 4
-bnb_4bit_compute_dtype: float32
-lora_dtype: float32
-max_length: 1024
+model: mlx-community/Qwen3.5-2B-4bit
+revision: 674aaa7240b91e8012fcad5d791b7dfe5ba90207
+num_layers: 24
+max_seq_length: 1024
 lora_rank: 16
-lora_alpha: 32
+lora_scale: 2
 lora_dropout: 0.05
 learning_rate: 5e-5
-num_train_epochs: 3
+epochs: 3
 batch_size: 1
-gradient_accumulation_steps: 16
-enable_thinking: false
+gradient_accumulation_steps: 10
+microbatches: 150
+optimizer_steps: 15
+mask_prompt: true
 ```
 
 只对 assistant 回复计算 loss。第三轮只相对有效更新方案增加 epoch，不修改冻结的 50 条训练数据、
 模型 revision、LoRA 结构、学习率或精度配置；不搜索超参数、不自动重训，也不要求合并 LoRA。
 
-阶段验收：
+正式训练前以一个有效累积批次执行临时 optimizer update，loss、梯度范数和权重增量必须为有限
+正数；正式训练随后重新加载 Base。阶段验收：
 
-- 3 epochs 正常结束，约 12 个 `grad_norm` 有限且为正，LoRA-B 全量更新，adapter 可重载。
-- 使用 `20260807/08/09` 三个固定 seed，在同一 Transformers 后端为 Base/SFT 各生成 30 条 Dev；
+- 3 epochs、150 microbatch、15 个 optimizer step 正常结束，所有 `grad_norm` 有限且为正，
+  LoRA-B 全量更新，adapter 可重载，MLX 峰值内存不超过 12GB。
+- 使用 `20260807/08/09` 三个固定 seed，在同一 MLX 后端为 Base/SFT 各生成 30 条 Dev；
   每次推理前分别重置 RNG，输出非空并按 `(seed, id)` 完全对齐。
 - 自动检查严格格式、截断、复读、乱码/异常符号、括号、标签和角色自称；SFT 相对 Base 的
   `stop` 不减少、截断与退化不增加、严格格式率至少提高 20 个百分点、“吾辈”比例提高且错误
@@ -157,6 +162,11 @@ max_completion_length: 256
 learning_rate: 1e-6
 epochs: 1
 enable_thinking: false
+temperature: 0.8
+top_p: 0.9
+top_k: 20
+clip_epsilon: 0.2
+beta: 0
 ```
 
 奖励定义：
@@ -165,8 +175,24 @@ enable_thinking: false
 R = (RoleConsistency + FormatConsistency + DialogueQuality) / 3 - Penalty
 ```
 
-三个主分均为 0～10 分。确定性规则检查格式；Teacher/Judge 评价角色与对话质量。`Penalty` 只处理
-复读、乱码、大段复述 Persona、照抄风格样例和空洞格式投机，避免重复惩罚主评分已覆盖的问题。
+三个主分均为 0～10 分。格式严格满足契约得 10 分，仅开头全角括号基本正确得 5 分，其他得
+0 分。DeepSeek Judge 每组一次请求并完整返回 4 个候选的角色与对话分；结构失败最多重试 3 次，
+完整奖励取得前不得更新。复读、乱码、大段复述 Persona、照抄风格样例各扣 2 分，额外标签扣
+1 分，总 penalty 最多 5 分；最终奖励限制在 `[-5, 10]`。空回答使整组失败，等奖励组记录并跳过。
+
+每个 Prompt 顺序生成候选并保存旧策略 completion-token log-prob；组内标准化 advantage 后，
+逐候选计算 completion-only clipped policy loss，累积 4 份梯度才更新一次。若一组内存预检超过
+12GB，依次启用 gradient checkpoint、逐候选清缓存和只训练最后 8 层；仍失败则写
+`local_grpo_blocked` 与云端重跑清单，不产生云费用，也不转换 MLX adapter。
+
+主入口是 `roleplay-posttrain`，固定顺序为：
+
+```text
+doctor → sft → gate-sft → reward-preview → grpo → evaluate
+```
+
+运行产物位于 `output/morgana-v1/posttrain/<run-id>/{sft,grpo,evaluation}/`。JSON/JSONL 摘要原子
+发布；中断日志可以保留，但只有通过门槛的最终 adapter 才是有效 checkpoint。
 
 阶段验收：
 
@@ -225,7 +251,7 @@ Base、SFT 和 GRPO 使用同一 Eval、Persona、生成参数和 Judge。分别
 ### Milestone 2：SFT
 
 - [ ] 完成一组**有效更新**的 QLoRA SFT，保存训练日志和 LoRA；首次 FP16 运行已判无效。
-- [ ] 在同一 Transformers 后端生成 Base/SFT Dev，通过机械门槛和人工比较。
+- [ ] 在同一 MLX 后端和 revision 生成 Base/SFT Dev，通过机械门槛和人工比较。
 - [ ] 将重训实际配置、观察、问题和进入 GRPO 的决定写入 `RUNLOG.md`。
 
 ### Milestone 3：GRPO 与统一评测

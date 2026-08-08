@@ -1,0 +1,3 @@
+mlx==0.32.0
+mlx-lm[train]==0.31.3
+openai==2.8.1

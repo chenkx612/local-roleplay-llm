@@ -6,4 +6,5 @@ __pycache__/
 .pytest_cache/
 .vscode/
 output/
+.venv/
  
