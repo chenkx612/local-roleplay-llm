@@ -1,5 +1,8 @@
 # 阶段二：Colab T4 LoRA SFT 执行计划
 
+> **v1 历史方案：** 本文对应 `morgana-v1` 第三次 SFT，已随 v1 封存，不是 v2 的执行计划。
+> v2 阶段二应在新数据和 Base 冻结后，依据 `PLAN.md` 另行生成实际运行说明。
+
 ## 1. 目标
 
 在 Google Colab 单张 NVIDIA T4 上，用一组固定配置完成最小且可审计的 SFT 链路：
