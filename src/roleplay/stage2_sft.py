@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import MutableMapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,8 @@ MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_sft_t4.yaml")
 DEFAULT_OUTPUT_RELATIVE_PATH = Path("output/morgana-v2/stage2-sft")
 MIN_GPU_MEMORY_GIB = 20.0
+DEFAULT_HF_ENDPOINT = "https://hf-mirror.com"
+DEFAULT_HF_HOME = "/root/autodl-tmp/huggingface"
 
 PINNED_PACKAGES = {
     "ms-swift": "4.4.1",
@@ -104,6 +107,19 @@ EXPECTED_ARCHIVE_FILES = frozenset(
 
 class Stage2SFTError(RuntimeError):
     """Raised when the frozen Stage 2 execution contract is violated."""
+
+
+def configure_huggingface_environment(
+    environment: MutableMapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Set AutoDL-friendly Hugging Face defaults without overriding the user."""
+    target = os.environ if environment is None else environment
+    target.setdefault("HF_ENDPOINT", DEFAULT_HF_ENDPOINT)
+    target.setdefault("HF_HOME", DEFAULT_HF_HOME)
+    return {
+        "endpoint": target["HF_ENDPOINT"],
+        "cache_home": target["HF_HOME"],
+    }
 
 
 def repository_root() -> Path:
@@ -558,6 +574,7 @@ def _record_failure(
 
 def run_stage2(output_root: Path | None = None) -> Path:
     """Execute the complete frozen Stage 2 SFT run and return its archive."""
+    huggingface_environment = configure_huggingface_environment()
     repo_dir = repository_root()
     output_root = (
         output_root.resolve()
@@ -590,6 +607,7 @@ def run_stage2(output_root: Path | None = None) -> Path:
             "platform": "AutoDL",
             **environment_snapshot,
             "packages": installed_versions,
+            "huggingface": huggingface_environment,
         },
     }
     write_json_atomic(summary_path, summary)

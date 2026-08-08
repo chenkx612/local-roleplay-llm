@@ -1,5 +1,11 @@
 # morgana-v2 运行日志
 
+## 2026-08-09：持久化 AutoDL Hugging Face 配置
+
+- `roleplay-stage2-sft run` 默认使用 `https://hf-mirror.com`，并将 Hugging Face 缓存放在
+  `/root/autodl-tmp/huggingface`，避免新 shell 或 tmux 会话遗漏环境变量而无法连接模型仓库。
+- 用户显式设置的 `HF_ENDPOINT` 和 `HF_HOME` 仍具有优先级；实际值写入 run summary，便于复盘。
+
 ## 2026-08-09：直接使用 AutoDL 基础环境
 
 - 独立虚拟环境的 PyTorch 2.10.0+cu128 方案在训练前取消。原因是它会重复安装基础镜像已有的

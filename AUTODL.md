@@ -40,7 +40,6 @@ python -m pip install \
   -r requirements/stage2_sft_autodl.txt
 python -m pip install -e .
 
-export HF_HOME=/root/autodl-tmp/huggingface
 python -m unittest discover -s tests -v
 roleplay-stage2-sft --help
 ```
@@ -52,6 +51,10 @@ CUDA `12.8` 和 CXX11 ABI `True`。
 Linux、Python 3.12、PyTorch 2.8、CUDA 12.8、单卡、至少 20GiB 显存、固定直接依赖、可选
 加速包未安装以及 tracked Git 文件无未提交修改。
 
+`roleplay-stage2-sft run` 会默认设置 `HF_ENDPOINT=https://hf-mirror.com` 和
+`HF_HOME=/root/autodl-tmp/huggingface`，无需在每次登录或新建 tmux 会话后重新 `export`。
+如需使用其他端点或缓存目录，在运行命令前显式设置对应环境变量即可；CLI 不会覆盖用户设置。
+
 ## 2. 运行
 
 建议在 tmux 中运行，避免 SSH 断开终止训练：
@@ -59,7 +62,6 @@ Linux、Python 3.12、PyTorch 2.8、CUDA 12.8、单卡、至少 20GiB 显存、�
 ```bash
 tmux new -s roleplay-sft
 cd /root/autodl-tmp/roleplay
-export HF_HOME=/root/autodl-tmp/huggingface
 roleplay-stage2-sft run
 ```
 

@@ -9,11 +9,14 @@ from unittest.mock import patch
 
 from roleplay.sft_eval import MANUAL_SCORE_DIMENSIONS, build_manual_review
 from roleplay.stage2_sft import (
+    DEFAULT_HF_ENDPOINT,
+    DEFAULT_HF_HOME,
     DISABLED_ACCELERATION_PACKAGES,
     EXPECTED_ARCHIVE_FILES,
     PINNED_PACKAGES,
     Stage2SFTError,
     _record_failure,
+    configure_huggingface_environment,
     create_exclusive_directory,
     ensure_clean_tracked_status,
     review_run,
@@ -110,6 +113,37 @@ def make_review_files(run_dir: Path, *, passing: bool, empty: bool = False):
 
 
 class EnvironmentValidationTests(unittest.TestCase):
+    def test_configures_autodl_huggingface_defaults(self):
+        environment = {}
+
+        configured = configure_huggingface_environment(environment)
+
+        self.assertEqual(environment["HF_ENDPOINT"], DEFAULT_HF_ENDPOINT)
+        self.assertEqual(environment["HF_HOME"], DEFAULT_HF_HOME)
+        self.assertEqual(
+            configured,
+            {
+                "endpoint": DEFAULT_HF_ENDPOINT,
+                "cache_home": DEFAULT_HF_HOME,
+            },
+        )
+
+    def test_preserves_explicit_huggingface_configuration(self):
+        environment = {
+            "HF_ENDPOINT": "https://huggingface.example.test",
+            "HF_HOME": "/tmp/custom-huggingface",
+        }
+
+        configured = configure_huggingface_environment(environment)
+
+        self.assertEqual(
+            configured,
+            {
+                "endpoint": "https://huggingface.example.test",
+                "cache_home": "/tmp/custom-huggingface",
+            },
+        )
+
     def test_accepts_frozen_autodl_environment(self):
         validate_environment_snapshot(make_environment())
 
