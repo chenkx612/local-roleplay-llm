@@ -1,0 +1,80 @@
+{
+  "schema_version": 2,
+  "status": "training_failed",
+  "run": {
+    "id": "20260808T170831Z-0b8290d2",
+    "created_at_utc": "2026-08-08T17:08:31.920858+00:00",
+    "repository": "https://github.com/chenkx612/local-roleplay-llm.git",
+    "commit": "1e2eccb504e8d57f7d01f280fac60bf90e7fece0",
+    "branch": "main"
+  },
+  "environment": {
+    "platform": "Linux",
+    "python_version": [
+      3,
+      12
+    ],
+    "python": "3.12.3",
+    "pytorch": "2.8.0+cu128",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu_count": 1,
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "gpu_memory_gib": 23.57,
+    "cxx11_abi": true,
+    "nvidia_smi_query": "NVIDIA GeForce RTX 3090, 24576 MiB, 570.124.04",
+    "packages": {
+      "ms-swift": "4.4.1",
+      "datasets": "4.8.4",
+      "transformers": "5.12.1",
+      "peft": "0.19.1",
+      "bitsandbytes": "0.49.2",
+      "qwen-vl-utils": "0.0.14"
+    }
+  },
+  "model": {
+    "name": "Qwen/Qwen3.5-2B",
+    "revision": "965dcc54bc9c0591873df0e9869c056a54d323d1"
+  },
+  "inputs": {
+    "files": {
+      "data/runs/morgana-v2/sft_train.jsonl": {
+        "sha256": "3b10722cdfe83b1f11b7514bec3c53aa15139210cc1601cb68b96b3cc6179c94",
+        "records": 50
+      },
+      "data/runs/morgana-v2/dev.jsonl": {
+        "sha256": "74cf6d05921155cec5c070ca8a611c7a8e6751b00ca0b77a6f4e9085aeeecb22",
+        "records": 10
+      },
+      "data/runs/morgana-v2/inputs/persona.json": {
+        "sha256": "42010082a1db9afcbf15cfed077dd59d4c7a0a0d8f44510292f00fe7ef87a10a"
+      },
+      "data/runs/morgana-v2/inputs/style_examples.jsonl": {
+        "sha256": "b8fa53f494d3202fe80aad90be4e2db098f56ac080bc152644ba3661e6104250"
+      },
+      "data/runs/morgana-v2/system_prompt.txt": {
+        "sha256": "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
+      },
+      "data/runs/morgana-v2/base_dev_outputs.jsonl": {
+        "sha256": "e3e1f00d904f8f5f27da7c8f86d68c43900a2fab498f668fe9c33b6f4b8335ac"
+      },
+      "data/runs/morgana-v2/base_generation_meta.json": {
+        "sha256": "7f947cf8e7ce8beefe7aad5cf6665fc33c8f9f9215a17829e473966635bbc245"
+      }
+    },
+    "max_sft_tokens": 967,
+    "max_length": 1024,
+    "assistant_targets": {
+      "records": 50,
+      "signature_self_reference_count": 50,
+      "wrong_self_reference_count": 0,
+      "average_characters": 136.76
+    },
+    "planned_optimizer_steps": 39
+  },
+  "error": {
+    "type": "Stage2SFTError",
+    "message": "grad_norm 无效: [nan, nan, nan, nan, nan, nan, 5.13837862, 4.13516188, 2.86235809, 4.19505453, 3.09158826, 3.45128989, 3.82770681, 3.27056885, 4.12314749, 3.14786673, 2.8030448, 3.37057781, 3.54893398, 3.2841475, 3.89927983, 3.17332697, 3.36051059, 2.94625092, 2.99744487, 3.76316929, 2.62941766, 3.36709714, 3.53316355, 3.43680382, 2.92030811, 3.52608252, 3.22230339, 3.51981831, 3.77402496, 3.04724503, 3.22304273, 3.30080414, 5.36207151]"
+  },
+  "retained_work_dir": "/root/autodl-tmp/roleplay/output/morgana-v2/stage2-sft/.work/20260808T170831Z-0b8290d2"
+}
