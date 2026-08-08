@@ -33,7 +33,8 @@ class PersonaValidationTests(unittest.TestCase):
     def test_rendered_prompt_prioritizes_readability_and_allows_creativity(self):
         prompt = render_persona_prompt(persona())
         self.assertIn("完整、自然、可读", prompt)
-        self.assertIn("动作或神态描写是可选的", prompt)
+        self.assertIn("鼓励根据场景适度穿插", prompt)
+        self.assertIn("位置和数量也不固定", prompt)
         self.assertIn("合理创作", prompt)
         self.assertNotIn("必须遵循统一格式", prompt)
 

@@ -416,7 +416,7 @@ class JsonlTests(unittest.TestCase):
                 paths["style_examples"].read_bytes(), examples_path.read_bytes()
             )
             self.assertIn(
-                "动作或神态描写是可选的",
+                "鼓励根据场景适度穿插",
                 paths["system_prompt"].read_text(encoding="utf-8"),
             )
             self.assertTrue(paths["manifest"].is_file())
@@ -583,7 +583,7 @@ class GenerateEndToEndTests(unittest.TestCase):
         system_prompt = (self.tmpdir / "system_prompt.txt").read_text(
             encoding="utf-8"
         )
-        self.assertIn("动作或神态描写是可选的", system_prompt)
+        self.assertIn("鼓励根据场景适度穿插", system_prompt)
         manifest = json.loads(
             (self.tmpdir / "input_manifest.json").read_text(encoding="utf-8")
         )
