@@ -5,8 +5,12 @@ revision 和验收门槛与 Colab 方案相同；现有 Colab notebook 保持不
 
 ## 1. 准备环境
 
-实例使用 `PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8` 基础镜像。项目安装到
-独立虚拟环境后会使用固定的 PyTorch 2.10.0+cu128，不修改镜像默认 Python 环境。
+实例使用 `PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8` 基础镜像，并直接使用
+镜像的 `/root/miniconda3/bin/python`。不创建额外虚拟环境，也不重复安装 PyTorch。
+
+Qwen3.5 不安装可选的 `flash-linear-attention` 和 `causal-conv1d`，使用 Transformers 的
+PyTorch fallback。它比可选内核更慢、更占显存，但避免下载或编译额外 CUDA 扩展，适合本项目
+的小规模学习运行。
 
 首次部署：
 
@@ -23,14 +27,17 @@ cd /root/autodl-tmp/roleplay
 git pull --ff-only
 ```
 
-创建固定环境：
+安装项目依赖：
 
 ```bash
-
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install --no-cache-dir -r requirements/stage2_sft_autodl.txt
+which python
+python -c 'import torch; print(torch.__version__, torch.version.cuda, torch._C._GLIBCXX_USE_CXX11_ABI)'
+python -m pip uninstall -y flash-linear-attention causal-conv1d
+python -m pip install --upgrade pip \
+  -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+python -m pip install \
+  -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+  -r requirements/stage2_sft_autodl.txt
 python -m pip install -e .
 
 export HF_HOME=/root/autodl-tmp/huggingface
@@ -38,9 +45,12 @@ python -m unittest discover -s tests -v
 roleplay-stage2-sft --help
 ```
 
+`which python` 应输出 `/root/miniconda3/bin/python`，环境检查应输出 PyTorch `2.8.0+cu128`、
+CUDA `12.8` 和 CXX11 ABI `True`。
+
 依赖安装是显式步骤；`roleplay-stage2-sft` 不会自行安装或升级包。正式运行前，CLI 会检查
-Linux、Python 3.12、PyTorch 2.10、CUDA 12.8、单卡、至少 20GiB 显存、固定直接依赖以及
-tracked Git 文件无未提交修改。
+Linux、Python 3.12、PyTorch 2.8、CUDA 12.8、单卡、至少 20GiB 显存、固定直接依赖、可选
+加速包未安装以及 tracked Git 文件无未提交修改。
 
 ## 2. 运行
 
@@ -49,7 +59,6 @@ tracked Git 文件无未提交修改。
 ```bash
 tmux new -s roleplay-sft
 cd /root/autodl-tmp/roleplay
-source .venv/bin/activate
 export HF_HOME=/root/autodl-tmp/huggingface
 roleplay-stage2-sft run
 ```
@@ -59,6 +68,8 @@ roleplay-stage2-sft run
 ```bash
 tmux attach -t roleplay-sft
 ```
+
+恢复 tmux 后不需要激活额外环境。
 
 另一个终端可查看 GPU：
 

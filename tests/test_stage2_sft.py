@@ -1,13 +1,17 @@
 """Tests for the AutoDL Stage 2 SFT orchestration helpers."""
 
+import importlib.metadata
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from roleplay.sft_eval import MANUAL_SCORE_DIMENSIONS, build_manual_review
 from roleplay.stage2_sft import (
+    DISABLED_ACCELERATION_PACKAGES,
     EXPECTED_ARCHIVE_FILES,
+    PINNED_PACKAGES,
     Stage2SFTError,
     _record_failure,
     create_exclusive_directory,
@@ -17,6 +21,7 @@ from roleplay.stage2_sft import (
     validate_archive_contract,
     validate_environment_snapshot,
     validate_file_manifest,
+    validate_pinned_packages,
     write_json_atomic,
 )
 
@@ -25,7 +30,7 @@ def make_environment(**overrides):
     environment = {
         "platform": "Linux",
         "python_version": [3, 12],
-        "pytorch": "2.10.0+cu128",
+        "pytorch": "2.8.0+cu128",
         "cuda": "12.8",
         "cuda_available": True,
         "gpu_count": 1,
@@ -112,7 +117,7 @@ class EnvironmentValidationTests(unittest.TestCase):
         cases = {
             "platform": {"platform": "Darwin"},
             "python": {"python_version": [3, 11]},
-            "torch": {"pytorch": "2.8.0+cu128"},
+            "torch": {"pytorch": "2.10.0+cu128"},
             "cuda": {"cuda": "13.0"},
             "availability": {"cuda_available": False},
             "gpu_count": {"gpu_count": 2},
@@ -128,6 +133,69 @@ class EnvironmentValidationTests(unittest.TestCase):
         ensure_clean_tracked_status("")
         with self.assertRaisesRegex(Stage2SFTError, "tracked"):
             ensure_clean_tracked_status(" M RUNLOG.md\n")
+
+
+class PackageValidationTests(unittest.TestCase):
+    @staticmethod
+    def package_versions(overrides=None, missing=()):
+        versions = dict(PINNED_PACKAGES)
+        versions.update(overrides or {})
+        for name in missing:
+            versions.pop(name, None)
+
+        def version(name):
+            if name in versions:
+                return versions[name]
+            raise importlib.metadata.PackageNotFoundError(name)
+
+        return version
+
+    @patch("roleplay.stage2_sft.importlib.metadata.version")
+    def test_accepts_frozen_direct_dependencies(self, version):
+        version.side_effect = self.package_versions()
+        self.assertEqual(validate_pinned_packages(), PINNED_PACKAGES)
+
+    @patch("roleplay.stage2_sft.importlib.metadata.version")
+    def test_rejects_missing_direct_dependency(self, version):
+        version.side_effect = self.package_versions(missing=("ms-swift",))
+        with self.assertRaisesRegex(Stage2SFTError, "缺少固定依赖"):
+            validate_pinned_packages()
+
+    @patch("roleplay.stage2_sft.importlib.metadata.version")
+    def test_rejects_mismatched_direct_dependency(self, version):
+        version.side_effect = self.package_versions(
+            overrides={"transformers": "0.0.0"}
+        )
+        with self.assertRaisesRegex(Stage2SFTError, "版本不匹配"):
+            validate_pinned_packages()
+
+    @patch("roleplay.stage2_sft.importlib.metadata.version")
+    def test_rejects_disabled_acceleration_packages(self, version):
+        disabled = DISABLED_ACCELERATION_PACKAGES[0]
+        version.side_effect = self.package_versions(
+            overrides={disabled: "0.5.1"}
+        )
+        with self.assertRaisesRegex(Stage2SFTError, "pip uninstall"):
+            validate_pinned_packages()
+
+    def test_autodl_requirements_reuse_base_torch_and_disable_kernels(self):
+        requirements = (
+            Path(__file__).resolve().parents[1]
+            / "requirements"
+            / "stage2_sft_autodl.txt"
+        ).read_text(encoding="utf-8")
+        forbidden = (
+            "download.pytorch.org",
+            "torch==",
+            "torchvision==",
+            "torchaudio==",
+            "flash-linear-attention",
+            "causal-conv1d",
+            "ninja==",
+        )
+        for dependency in forbidden:
+            with self.subTest(dependency=dependency):
+                self.assertNotIn(dependency, requirements)
 
 
 class FileContractTests(unittest.TestCase):

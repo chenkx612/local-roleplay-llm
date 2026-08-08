@@ -1,5 +1,16 @@
 # morgana-v2 运行日志
 
+## 2026-08-09：直接使用 AutoDL 基础环境
+
+- 独立虚拟环境的 PyTorch 2.10.0+cu128 方案在训练前取消。原因是它会重复安装基础镜像已有的
+  PyTorch/CUDA 依赖，且绑定 Torch 2.10 的 causal-conv1d GitHub wheel 在当前网络下无法以
+  合理时间下载。
+- 正式训练改为直接使用 `/root/miniconda3/bin/python`：PyTorch 2.8.0+cu128、Python 3.12、
+  CUDA 12.8、CXX11 ABI True。项目不再创建 `.venv`，只安装缺少的固定直接依赖。
+- 基础镜像没有 nvcc；为避免继续下载或编译 CUDA 扩展，移除 flash-linear-attention 和
+  causal-conv1d，Qwen3.5 使用 Transformers 的 PyTorch fallback。训练配置和验收门槛不变；
+  若首次正式运行 OOM，先保留失败证据，再另行决定是否调整 micro-batch。
+
 ## 2026-08-08：第二次 SFT 迁移到 AutoDL
 
 - Colab 免费额度耗尽且本轮不购买 Colab Pro，第二次 SFT 改在 AutoDL 单张 RTX 3090 24GB

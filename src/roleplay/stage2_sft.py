@@ -45,10 +45,12 @@ PINNED_PACKAGES = {
     "peft": "0.19.1",
     "bitsandbytes": "0.49.2",
     "qwen-vl-utils": "0.0.14",
-    "flash-linear-attention": "0.5.1",
-    "ninja": "1.13.0",
-    "causal-conv1d": "1.6.2.post1",
 }
+
+DISABLED_ACCELERATION_PACKAGES = (
+    "flash-linear-attention",
+    "causal-conv1d",
+)
 
 EXPECTED_INPUTS = {
     "data/runs/morgana-v2/sft_train.jsonl": {
@@ -167,9 +169,9 @@ def validate_environment_snapshot(snapshot: dict[str, Any]) -> None:
     checks = {
         "Linux": snapshot.get("platform") == "Linux",
         "Python 3.12": tuple(snapshot.get("python_version", ())) == (3, 12),
-        "PyTorch 2.10.0": (
+        "PyTorch 2.8.0": (
             normalized_package_version(str(snapshot.get("pytorch", "")))
-            == "2.10.0"
+            == "2.8.0"
         ),
         "CUDA 12.8": snapshot.get("cuda") == "12.8",
         "CUDA available": snapshot.get("cuda_available") is True,
@@ -191,7 +193,7 @@ def capture_environment() -> tuple[dict[str, Any], Any]:
         import torch
     except ImportError as exc:
         raise Stage2SFTError(
-            "缺少 PyTorch；请先按 AUTODL.md 安装固定依赖"
+            "缺少 PyTorch；请选择 AUTODL.md 指定的 PyTorch 2.8.0 基础镜像"
         ) from exc
 
     cuda_available = torch.cuda.is_available()
@@ -235,6 +237,19 @@ def capture_environment() -> tuple[dict[str, Any], Any]:
 
 def validate_pinned_packages() -> dict[str, str]:
     """Require the direct training dependencies to match the frozen versions."""
+    disabled = {}
+    for name in DISABLED_ACCELERATION_PACKAGES:
+        try:
+            disabled[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            pass
+    if disabled:
+        packages = " ".join(DISABLED_ACCELERATION_PACKAGES)
+        raise Stage2SFTError(
+            f"检测到禁用的可选加速依赖: {disabled}；"
+            f"请运行 python -m pip uninstall -y {packages}"
+        )
+
     installed: dict[str, str] = {}
     missing: list[str] = []
     for name in PINNED_PACKAGES:
