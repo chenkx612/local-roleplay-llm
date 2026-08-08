@@ -257,16 +257,19 @@ Dev 可比性：两次使用相同 Persona、system prompt、10 条冻结 Dev、
 诊断与重训决定：
 
 - 本次运行判定为**技术无效**而非“有效 SFT 的负向效果”，撤销阶段二完成和进入 GRPO 的决定。
-- 重训保持数据、模型 revision、LoRA 结构、学习率和 1 epoch 不变，只把模型计算、BNB compute
-  和 LoRA 参数统一改为 `float32`，先解决 FP16 数值更新失败；这是基于故障机制的最小修复，
-  不使用 Dev 搜索超参数。
-- 新 notebook 在 1-step 冒烟和正式训练后都要求：loss 有限、`grad_norm` 有限且为正、所有
-  LoRA-B 张量含非零元素且所有 adapter 张量有限；任一失败立即停止。
+- 第三轮计划保持数据、模型 revision、LoRA 结构、学习率和 `float32` 精度配置不变，仅将训练
+  从 1 epoch 提升为 3 epochs，预计由 4 个 optimizer step 增至约 12 个；不使用 Dev 搜索参数，
+  一次运行中不自动重训。
+- 新 notebook 要求约 12 个 `grad_norm` 全部有限且为正、所有 LoRA-B 张量含非零元素且所有
+  adapter 张量有限；任一技术断言失败立即停止。
 - 推理同时生成同一 Transformers 后端、同一 revision 的无 adapter Base 和 SFT，移除协议层的
-  空 `<think></think>` wrapper 后再检查。SFT 必须 10/10 非空、10/10 `stop`、无机械复读、
-  严格格式至少 8/10 且不差于同后端 Base，才成为人工复核候选。
-- 机械门槛通过后仍需人工检查角色一致性和对话质量；只有人工确认有实际改善且无严重退化，
-  才能再次把阶段二标为完成并进入 GRPO。
+  空 `<think></think>` wrapper 后再检查。使用 `20260807/08/09` 三个 seed 生成 Base/SFT 各
+  30 条，并按 `(seed, id)` 对齐。
+- 自动门槛要求 SFT 相对 Base 不减少 `stop`、不增加截断与退化、严格格式率至少提高 20 个
+  百分点、“吾辈”比例提高且错误别称比例降低；失败状态记为 `behavior_failed` 并保留产物。
+- 自动门槛通过后，对主 seed 做匿名人工比较；SFT 至少胜 6 对、明显落后不超过 2 对、无严重
+  问题，emotion 样本不得落后或出现视角错位/乱码。技术、自动行为和人工三层都通过才进入
+  GRPO。以上是待运行方案，不预写实际成功结论。
 
 ## 阶段三：GRPO
 

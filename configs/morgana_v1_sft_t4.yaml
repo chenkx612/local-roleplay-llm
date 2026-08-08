@@ -30,7 +30,7 @@ enable_thinking: false
 packing: false
 padding_free: false
 
-num_train_epochs: 1
+num_train_epochs: 3
 per_device_train_batch_size: 1
 gradient_accumulation_steps: 16
 learning_rate: 5.0e-5

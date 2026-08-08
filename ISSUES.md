@@ -26,10 +26,10 @@ LoRA-B 张量全部精确为零，LoRA-B 非零元素总数为 0。LoRA 初始 B
 行为成为 FP16。结合连续非有限 `grad_norm` 和零更新，最可能是 AMP 梯度溢出导致四次 step
 全部跳过。此前 notebook 只检查 loss 和可加载性，没有检查梯度及权重是否实际变化。
 
-**修复与验收：** 重训保持数据、模型 revision、LoRA 结构、学习率和 epoch 不变，将模型计算、
-BNB compute、LoRA 参数改为 FP32。1-step 冒烟和正式训练都必须检查有限正 `grad_norm`、全部
-LoRA-B 张量含非零元素且 adapter 全部有限；任一断言失败即停止。重训和人工效果验收完成前，
-阶段二保持未完成，禁止进入 GRPO。
+**修复与验收：** 第三轮保持数据、模型 revision、LoRA 结构、学习率和 FP32 精度配置不变，
+仅将训练从 1 epoch 提升为 3 epochs。正式训练必须得到约 12 个有限正 `grad_norm`、全部 LoRA-B
+张量含非零元素且 adapter 全部有限；任一断言失败即停止。重训和两层行为验收完成前，阶段二
+保持未完成，禁止进入 GRPO。
 
 ### P1｜首次 Transformers Dev 全量格式失败且半数截断
 
@@ -42,9 +42,10 @@ LoRA-B 张量含非零元素且 adapter 全部有限；任一断言失败即停�
 上游 HF Base + Transformers 模板/采样栈，不能当作 SFT 的负向效果。
 
 **修复与验收：** 重训 notebook 会在同一 Transformers backend、同一上游 revision 下额外生成
-无 adapter Base，移除协议层空 `<think></think>` wrapper 后比较。SFT 必须 10/10 非空、
-10/10 `stop`、无机械复读、严格格式至少 8/10 且不差于同后端 Base，才进入人工复核；人工还要
-确认角色和对话质量有实际改善且无严重退化。
+无 adapter Base，移除协议层空 `<think></think>` wrapper 后比较。三个固定 seed 下 Base/SFT
+各 30 条必须完整对齐；SFT 的结束、截断、退化、严格格式和角色自称须通过相对自动门槛，随后
+主 seed 匿名人工比较还须达到胜负、严重问题和 emotion 专项门槛。任一行为门槛失败都归档证据，
+但不得进入 GRPO。
 
 ### P2｜Base/SFT 初步比较存在推理后端混杂
 

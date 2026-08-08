@@ -120,22 +120,29 @@ lora_rank: 16
 lora_alpha: 32
 lora_dropout: 0.05
 learning_rate: 5e-5
-num_train_epochs: 1
+num_train_epochs: 3
 batch_size: 1
 gradient_accumulation_steps: 16
 enable_thinking: false
 ```
 
-只对 assistant 回复计算 loss。首次实践不搜索超参数，也不要求合并 LoRA。
+只对 assistant 回复计算 loss。第三轮只相对有效更新方案增加 epoch，不修改冻结的 50 条训练数据、
+模型 revision、LoRA 结构、学习率或精度配置；不搜索超参数、不自动重训，也不要求合并 LoRA。
 
 阶段验收：
 
-- 训练正常结束，loss 可解释，LoRA 可以重新加载并生成非空回答。
-- 在 Dev 上使用与 Base 可比的 Persona、模板和生成参数，记录所有差异。
-- 记录角色、格式、对话质量，以及复读、模板化、统一拒答、过短或格式投机等退化。
-- 保存训练配置、日志、适配器、Dev 输出和阶段观察。
+- 3 epochs 正常结束，约 12 个 `grad_norm` 有限且为正，LoRA-B 全量更新，adapter 可重载。
+- 使用 `20260807/08/09` 三个固定 seed，在同一 Transformers 后端为 Base/SFT 各生成 30 条 Dev；
+  每次推理前分别重置 RNG，输出非空并按 `(seed, id)` 完全对齐。
+- 自动检查严格格式、截断、复读、乱码/异常符号、括号、标签和角色自称；SFT 相对 Base 的
+  `stop` 不减少、截断与退化不增加、严格格式率至少提高 20 个百分点、“吾辈”比例提高且错误
+  别称比例降低。
+- 自动门槛通过后，对主 seed 10 对输出做固定顺序的匿名 A/B 复核；SFT 至少胜 6 对、明显落后
+  不超过 2 对、无严重问题，emotion 样本不得落后或出现视角错位/乱码。
+- 保存训练配置、日志、适配器、30+30 Dev 输出、匿名复核三件套和统一摘要。
 
-技术失败必须修复或形成清楚记录；只要链路有效，即使 SFT 未优于 Base，也继续进入 GRPO。
+技术有效但行为未达标时保留产物并记录负向结果，但不得进入 GRPO。只有
+`technical_gate && relative_behavior_gate && manual_gate` 才令 `ready_for_grpo=true`。
 
 ## 5. 阶段三：GRPO
 
