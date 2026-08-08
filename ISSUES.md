@@ -1,5 +1,18 @@
 # v2 Issues
 
+## P1｜首轮 SFT 稳定性失败且核心自称未迁移（第二轮待验证）
+
+**位置：** `output/morgana-v2/stage2-sft/1/run_summary.json`、
+`output/morgana-v2/stage2-sft/1/dev_outputs.jsonl`
+
+**现象：** 首轮训练技术有效，但 `dev_0001` 达到 512 token 上限并截断，导致稳定性门槛失败；
+10 条 SFT Dev 均未使用训练标签中全量出现的“吾辈”，另有 3 条仍使用“本大爷”或“本喵”。
+
+**第二轮策略：** 保持冻结数据、3 epochs、`5e-5` 学习率、LoRA 和推理参数不变，将有效
+batch size 从 16 降到 4，把预期 optimizer step 从 12 提高到 39；具体使用物理 batch 2、
+梯度累积 2，提高 T4 显存利用率。
+第二轮仍须先通过稳定性门槛，再进行匿名人工复核；运行前不修改 Dev 或验收阈值。
+
 ## P3｜Teacher-corrected SFT 仍有局部瑕疵（不阻断）
 
 **位置：** `data/runs/morgana-v2/sft_teacher_edits.jsonl`、

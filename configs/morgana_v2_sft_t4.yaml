@@ -31,8 +31,8 @@ packing: false
 padding_free: false
 
 num_train_epochs: 3
-per_device_train_batch_size: 1
-gradient_accumulation_steps: 16
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 2
 learning_rate: 5.0e-5
 gradient_checkpointing: true
 

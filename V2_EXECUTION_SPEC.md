@@ -94,10 +94,15 @@ lora_alpha: 32
 lora_dropout: 0.05
 learning_rate: 5e-5
 num_train_epochs: 3
-per_device_train_batch_size: 1
-gradient_accumulation_steps: 16
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 2
 enable_thinking: false
 ```
+
+该配置用于第二次 SFT。第一次 SFT 的配置和结果已原样归档；第二次把有效 batch size 从 16
+降到 4，使 50 条数据、3 epochs 下的预期 optimizer step 从 12 增加到 39。物理 batch size
+设为 2、梯度累积设为 2，以利用 T4 的剩余显存；数据、学习率、epoch、LoRA 和推理参数保持
+不变。训练前还必须确认 50 条 assistant 标签全部包含“吾辈”，且不包含“本大爷”或“本喵”。
 
 只对 assistant 回复计算 loss，不使用 Dev 搜索 epoch、学习率或 LoRA 参数。技术失败可以修复明确
 的实现问题后重跑；行为失败不得在同一轮静默调参。
