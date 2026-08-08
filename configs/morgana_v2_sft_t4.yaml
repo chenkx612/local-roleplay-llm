@@ -16,6 +16,8 @@ lora_alpha: 32
 lora_dropout: 0.05
 
 torch_dtype: float32
+fp16: false
+bf16: false
 quant_method: bnb
 quant_bits: 4
 bnb_4bit_compute_dtype: float32

@@ -41,6 +41,14 @@ MIN_GPU_MEMORY_GIB = 20.0
 DEFAULT_HF_ENDPOINT = "https://hf-mirror.com"
 DEFAULT_HF_HOME = "/root/autodl-tmp/huggingface"
 
+EXPECTED_TRAINING_PRECISION = {
+    "torch_dtype": "float32",
+    "bnb_4bit_compute_dtype": "float32",
+    "lora_dtype": "float32",
+    "fp16": False,
+    "bf16": False,
+}
+
 PINNED_PACKAGES = {
     "ms-swift": "4.4.1",
     "datasets": "4.8.4",
@@ -403,6 +411,70 @@ def validate_frozen_inputs(
     return validated, sft_rows, dev_rows
 
 
+def validate_training_config(
+    train_config: dict[str, Any], record_count: int
+) -> int:
+    """Validate the frozen pure-FP32 setup and return planned steps."""
+    expected = {
+        **EXPECTED_TRAINING_PRECISION,
+        "per_device_train_batch_size": 2,
+        "gradient_accumulation_steps": 2,
+        "num_train_epochs": 3,
+    }
+    mismatches = [
+        f"{name}={train_config.get(name)!r} (预期 {value!r})"
+        for name, value in expected.items()
+        if train_config.get(name) != value
+    ]
+    if mismatches:
+        raise Stage2SFTError(
+            "冻结训练配置不正确: " + ", ".join(mismatches)
+        )
+
+    planned_optimizer_steps = (
+        math.ceil(
+            math.ceil(
+                record_count / train_config["per_device_train_batch_size"]
+            )
+            / train_config["gradient_accumulation_steps"]
+        )
+        * train_config["num_train_epochs"]
+    )
+    if planned_optimizer_steps != 39:
+        raise Stage2SFTError(
+            "冻结训练配置不再产生预期的 39 steps: "
+            f"{planned_optimizer_steps}"
+        )
+    return planned_optimizer_steps
+
+
+def validate_effective_training_args(output_dir: Path) -> dict[str, Any]:
+    """Require ms-swift's resolved arguments to remain pure FP32."""
+    args_path = output_dir / "args.json"
+    if not args_path.is_file():
+        raise Stage2SFTError(f"训练输出缺少 args.json: {args_path}")
+    try:
+        args = json.loads(args_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise Stage2SFTError(f"训练 args.json 无效: {args_path}") from exc
+    if not isinstance(args, dict):
+        raise Stage2SFTError(f"训练 args.json 不是对象: {args_path}")
+
+    effective = {
+        name: args.get(name) for name in EXPECTED_TRAINING_PRECISION
+    }
+    mismatches = [
+        f"{name}={effective[name]!r} (预期 {value!r})"
+        for name, value in EXPECTED_TRAINING_PRECISION.items()
+        if effective[name] != value
+    ]
+    if mismatches:
+        raise Stage2SFTError(
+            "ms-swift 实际训练精度不正确: " + ", ".join(mismatches)
+        )
+    return effective
+
+
 def run_logged(
     command: list[str], log_path: Path, repo_dir: Path, environment: dict[str, str]
 ) -> float:
@@ -634,22 +706,11 @@ def run_stage2(output_root: Path | None = None) -> Path:
         ]
         config_path = repo_dir / CONFIG_RELATIVE_PATH
         train_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        planned_optimizer_steps = (
-            math.ceil(
-                math.ceil(
-                    len(sft_rows)
-                    / train_config["per_device_train_batch_size"]
-                )
-                / train_config["gradient_accumulation_steps"]
-            )
-            * train_config["num_train_epochs"]
+        if not isinstance(train_config, dict):
+            raise Stage2SFTError("训练配置不是 YAML 对象")
+        planned_optimizer_steps = validate_training_config(
+            train_config, len(sft_rows)
         )
-        if (
-            train_config["per_device_train_batch_size"] != 2
-            or train_config["gradient_accumulation_steps"] != 2
-            or planned_optimizer_steps != 39
-        ):
-            raise Stage2SFTError("冻结训练配置不再产生预期的 39 steps")
 
         effective_config_path = work_root / "training_config.yaml"
         effective_config_path.write_text(
@@ -744,6 +805,17 @@ def run_stage2(output_root: Path | None = None) -> Path:
         )
         shutil.copy2(train_log, run_dir / "train.log")
 
+        effective_precision = validate_effective_training_args(train_dir)
+        summary["training"] = {
+            "command": train_command,
+            "epochs": train_config["num_train_epochs"],
+            "expected_optimizer_steps": planned_optimizer_steps,
+            "duration_seconds": round(train_duration_seconds, 3),
+            "effective_precision": effective_precision,
+        }
+        summary["status"] = "training_completed"
+        write_json_atomic(summary_path, summary)
+
         full_adapter = find_final_adapter(train_dir)
         full_losses = read_metric(train_dir, "loss")
         full_grad_norms = read_metric(train_dir, "grad_norm")
@@ -762,18 +834,16 @@ def run_stage2(output_root: Path | None = None) -> Path:
             )
         adapter_update = inspect_adapter_update(full_adapter)
         adapter_weights = full_adapter / "adapter_model.safetensors"
-        summary["training"] = {
-            "command": train_command,
-            "epochs": train_config["num_train_epochs"],
-            "expected_optimizer_steps": planned_optimizer_steps,
-            "optimizer_steps": len(full_grad_norms),
-            "duration_seconds": round(train_duration_seconds, 3),
-            "losses": full_losses,
-            "grad_norms": full_grad_norms,
-            "adapter_update": adapter_update,
-            "adapter_sha256": sha256_file(adapter_weights),
-            "adapter_archive": "adapter",
-        }
+        summary["training"].update(
+            {
+                "optimizer_steps": len(full_grad_norms),
+                "losses": full_losses,
+                "grad_norms": full_grad_norms,
+                "adapter_update": adapter_update,
+                "adapter_sha256": sha256_file(adapter_weights),
+                "adapter_archive": "adapter",
+            }
+        )
         summary["status"] = "training_validated"
         write_json_atomic(summary_path, summary)
 

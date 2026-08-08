@@ -1,5 +1,21 @@
 # v2 Issues
 
+## P0｜第二次 SFT 隐式启用 FP16，梯度溢出（已修复代码，待全新运行验证）
+
+**位置：** `output/morgana-v2/stage2-sft/2/run_summary.json`、
+`output/morgana-v2/stage2-sft/2/train.log`、`configs/morgana_v2_sft_t4.yaml`
+
+**现象：** AutoDL run 完成 39/39 个记录步，但前 6 个 `grad_norm` 为 `NaN`。流水线正确地
+标记为 `training_failed`，没有把 checkpoint 当作正式 adapter，也没有继续 Dev 推理。
+
+**原因：** 配置中的 model、BNB compute 和 LoRA dtype 虽为 FP32，但 ms-swift 解析出的实际
+参数仍为 `fp16=true`、`bf16=false`，因此训练开头发生 FP16 梯度溢出。
+
+**修复与验收：** 显式设置 `fp16=false`、`bf16=false`；训练前冻结校验纯 FP32 和 39 steps，
+训练后再从 `args.json` 校验实际精度并写入 summary。失败 checkpoint 不续训。新 run 必须满足
+39 个梯度全部有限且为正、186/186 个 LoRA-B 张量非零且有限、adapter 可重新加载并完成 Dev
+推理，才能把本项标记为完全解决。
+
 ## P1｜首轮 SFT 稳定性失败且核心自称未迁移（第二轮待验证）
 
 **位置：** `output/morgana-v2/stage2-sft/1/run_summary.json`、

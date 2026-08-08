@@ -22,9 +22,11 @@ from roleplay.stage2_sft import (
     review_run,
     sha256_file,
     validate_archive_contract,
+    validate_effective_training_args,
     validate_environment_snapshot,
     validate_file_manifest,
     validate_pinned_packages,
+    validate_training_config,
     write_json_atomic,
 )
 
@@ -230,6 +232,72 @@ class PackageValidationTests(unittest.TestCase):
         for dependency in forbidden:
             with self.subTest(dependency=dependency):
                 self.assertNotIn(dependency, requirements)
+
+
+class TrainingPrecisionValidationTests(unittest.TestCase):
+    @staticmethod
+    def pure_fp32_config():
+        return {
+            "torch_dtype": "float32",
+            "bnb_4bit_compute_dtype": "float32",
+            "lora_dtype": "float32",
+            "fp16": False,
+            "bf16": False,
+            "per_device_train_batch_size": 2,
+            "gradient_accumulation_steps": 2,
+            "num_train_epochs": 3,
+        }
+
+    def test_accepts_pure_fp32_config_and_plans_39_steps(self):
+        self.assertEqual(
+            validate_training_config(self.pure_fp32_config(), 50), 39
+        )
+
+    def test_rejects_each_mixed_precision_or_dtype_change(self):
+        cases = {
+            "fp16": True,
+            "bf16": True,
+            "torch_dtype": "float16",
+            "bnb_4bit_compute_dtype": "float16",
+            "lora_dtype": "float16",
+        }
+        for name, value in cases.items():
+            with self.subTest(name=name):
+                config = self.pure_fp32_config()
+                config[name] = value
+                with self.assertRaisesRegex(
+                    Stage2SFTError, "冻结训练配置不正确"
+                ):
+                    validate_training_config(config, 50)
+
+    def test_accepts_effective_pure_fp32_args(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary)
+            args = self.pure_fp32_config()
+            write_json_atomic(output_dir / "args.json", args)
+
+            self.assertEqual(
+                validate_effective_training_args(output_dir),
+                {
+                    "torch_dtype": "float32",
+                    "bnb_4bit_compute_dtype": "float32",
+                    "lora_dtype": "float32",
+                    "fp16": False,
+                    "bf16": False,
+                },
+            )
+
+    def test_rejects_hidden_effective_fp16(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary)
+            args = self.pure_fp32_config()
+            args["fp16"] = True
+            write_json_atomic(output_dir / "args.json", args)
+
+            with self.assertRaisesRegex(
+                Stage2SFTError, "ms-swift 实际训练精度不正确"
+            ):
+                validate_effective_training_args(output_dir)
 
 
 class FileContractTests(unittest.TestCase):

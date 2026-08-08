@@ -87,6 +87,8 @@ model: Qwen/Qwen3.5-2B
 tuner_type: lora
 target_modules: all-linear
 torch_dtype: float32
+fp16: false
+bf16: false
 quant_method: bnb
 quant_bits: 4
 bnb_4bit_compute_dtype: float32
@@ -108,12 +110,19 @@ enable_thinking: false
 新增显存调整 batch；数据、学习率、epoch、LoRA 和推理参数保持不变。训练前还必须确认 50 条
 assistant 标签全部包含“吾辈”，且不包含“本大爷”或“本喵”。
 
+第二次 SFT 的 AutoDL 首次运行虽然完成了 39/39 个记录步，但 ms-swift 将未显式指定的
+混合精度解析为 `fp16=true`，开头连续 6 个 `grad_norm` 为 `NaN`，因此技术门槛失败。
+修复后显式关闭 FP16 和 BF16，保持 model、BNB compute 与 LoRA 均为 FP32；训练结束后还需
+读取 ms-swift 的 `args.json`，确认实际参数没有重新启用混合精度。失败 checkpoint 只作证据，
+不得续训或进入 GRPO。
+
 只对 assistant 回复计算 loss，不使用 Dev 搜索 epoch、学习率或 LoRA 参数。技术失败可以修复明确
 的实现问题后重跑；行为失败不得在同一轮静默调参。
 
 ### 3.1 技术门槛
 
 - 3 epochs 正常结束，optimizer step 数与预期一致。
+- 实际训练参数为 `fp16=false`、`bf16=false`，三个 dtype 均为 `float32`。
 - 所有记录的 `grad_norm` 有限且为正。
 - 所有 LoRA-B 张量出现非零更新，adapter 张量全部有限。
 - adapter 可重新加载并生成非空回答。

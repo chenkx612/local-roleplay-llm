@@ -1,5 +1,19 @@
 # morgana-v2 运行日志
 
+## 2026-08-09：第二次 SFT 数值失败与纯 FP32 修复
+
+- AutoDL run `20260808T170831Z-0b8290d2` 完成了 39/39 个记录步并保存
+  `checkpoint-39`，但前 6 个 `grad_norm` 为 `NaN`；流水线按技术门槛标记为
+  `training_failed`，未归档 adapter、未执行 Dev 推理，也未进入 GRPO。
+- 本次不是 OOM、下载失败或数据校验失败。虽然冻结配置的 model、BNB compute 和 LoRA dtype
+  均为 FP32，ms-swift 的实际 `SftArguments` 却为 `fp16=true`、`bf16=false`，触发了 FP16
+  梯度溢出。
+- 修复采用显式纯 FP32：配置增加 `fp16=false`、`bf16=false`；训练前校验全部精度字段和
+  39 steps，训练后读取 `args.json` 再次确认实际精度，并把审计值写入 run summary。
+- 失败 run 和 retained work 只作诊断证据。下一次从固定 Qwen 基座与 seed 全新运行，不加载
+  v2-2 checkpoint；数据、batch、学习率、epoch、LoRA 和评测门槛保持不变。若纯 FP32 OOM，
+  保留失败证据并停止，不自动切换 BF16。
+
 ## 2026-08-09：持久化 AutoDL Hugging Face 配置
 
 - `roleplay-stage2-sft run` 默认使用 `https://hf-mirror.com`，并将 Hugging Face 缓存放在
