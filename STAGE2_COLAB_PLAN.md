@@ -21,7 +21,8 @@
 ## 2. 固定决策
 
 - 运行环境：Google Colab `2026.04`、Python 3.12、PyTorch 2.10、单张 NVIDIA T4。
-- 仓库从公开 GitHub `main` clone，并记录实际 commit。
+- 仓库从公开 GitHub `stage2-sft-dev` clone，并记录实际 commit。合并阶段二改动后再将
+  notebook 和本说明中的分支一并切换为 `main`。
 - 训练基座：`Qwen/Qwen3.5-2B`，revision 固定为
   `965dcc54bc9c0591873df0e9869c056a54d323d1`。
 - ms-swift Transformers 后端使用 BNB 4-bit QLoRA；模型计算、BNB compute 和 LoRA 参数均为
