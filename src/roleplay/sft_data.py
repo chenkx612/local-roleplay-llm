@@ -43,6 +43,7 @@ from .inference import (
     generate_with_retry,
 )
 from .persona import PersonaValidationError, load_persona, render_persona_prompt
+from .sft_eval import has_gibberish, has_repeated_span
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,16 +53,14 @@ TEACHER_MAX_TOKENS = 4096
 TEACHER_TEMPERATURE: float | None = None
 TEACHER_THINKING_TYPE = "enabled"
 TEACHER_REASONING_EFFORT = "high"
-TEACHER_PROMPT_VERSION = 5
-METADATA_SCHEMA_VERSION = 2
+TEACHER_PROMPT_VERSION = 6
+METADATA_SCHEMA_VERSION = 3
 DECISIONS = {"keep", "light_rewrite", "rewrite"}
-SCORE_NAMES = {"persona", "grounding", "style", "format", "quality"}
+SCORE_NAMES = {"stability", "persona", "quality"}
 FINAL_CHECK_NAMES = {
-    "persona_and_addressing",
-    "grounding_and_creativity",
-    "format",
-    "directly_answers_user",
-    "natural_dialogue",
+    "generation_stability",
+    "role_consistency",
+    "dialogue_quality",
 }
 AUDIT_FIELDS = {
     "user",
@@ -177,47 +176,35 @@ def build_teacher_system(persona_text: str, examples_text: str) -> str:
         f"{persona_text}\n\n"
         "【表达风格样例】\n"
         f"{examples_text}\n\n"
-        "【事实边界】\n"
-        "1. persona 是本项目中身份、关系、当前状态和边界的最高优先级依据，"
-        "但不是角色所在原作世界的穷尽百科。\n"
-        "2. 可以使用与 persona 不冲突、广为确立且与当前问题直接相关的原作设定；"
-        "如果不确定是否属于稳定原作事实，不要冒充确定事实。\n"
-        "3. 允许为当前回复做非持久性创造，例如当下选择、假设行为、幽默夸张、"
-        "普通生活细节和当场表达的喜好；这些内容不应建立后续必须记住的新事实。\n"
-        "4. 不得编造用户个人信息、重大关系变化、具体共同经历、"
-        "对后续对话有影响的持续状态，或无依据的重大角色经历。\n"
-        "5. 用户提问中的预设、猜测和二选一不会自动成为事实；"
-        "可以自然接住假设，但不得把它改写成已发生的确定历史。\n"
-        "6. 风格样例只用于学习表达方式，其中的具体共同经历不得迁移到新对话。\n\n"
+        "【创作边界】\n"
+        "1. persona 定义核心身份、性格、关系和边界，但不限制合理的角色化想象。\n"
+        "2. 可以补充与核心设定和当前对话不冲突的生活细节、幽默夸张、偏好和假设行为。\n"
+        "3. 不得擅自编造用户个人经历、重大共同关系，或与当前对话明确内容冲突的信息。\n"
+        "4. 风格样例只用于学习表达方式，不迁移其中的用户经历和重大关系。\n\n"
         "【审计规则】\n"
-        "分别按 0～10 的整数评价角色一致性 persona、事实依据 grounding、"
-        "表达风格 style、格式契约 format 和对话质量 quality，并具体列出 issues。\n"
-        "format 必须检查回答是否以一组闭合的全角括号描述简短动作或神态，"
-        "随后进入口语对白，且没有长篇旁白、额外标签或多层括号。\n"
+        "按递进关系分别用 0～10 整数评价生成稳定性 stability、角色一致性 persona "
+        "和对话质量 quality，并具体列出 issues。\n"
+        "生成稳定性检查回答是否完整、连贯、可读，无乱码、严重复读或破坏性截断；"
+        "动作括号、emoji 和固定开头不作硬性要求。\n"
+        "角色一致性检查核心身份、性格、关系、边界和语言风格。\n"
+        "对话质量检查是否直接回应用户、自然、有意义并能承接后续对话。\n"
         "回答完全合格时 decision=keep，improved_assistant 必须逐字保留 baseline。\n"
         "只需少量修正时 decision=light_rewrite；存在明显问题时 decision=rewrite。\n"
         "改写必须是最小充分修改，保持自然、相关、可继续对话，不要解释审计过程。\n\n"
         "【改写后必做自检】\n"
-        "1. 对 improved_assistant 重新做一次独立的事实检查："
-        "不能因为某个细节来自 baseline 就保留它。"
-        "重点删除无依据的用户事实、重大共同经历和持续状态；"
-        "不要误删符合原作的细节或只服务于当前回复的创造性表达。\n"
-        "2. 对 improved_assistant 重新做一次独立的格式检查："
-        "只能在回答开头有一组全角括号，口语对白中不得再出现任何动作括号。\n"
-        "3. 只有改写后回答同时通过事实、persona、style、format 和 quality "
-        "检查，才能把 final_checks 的对应字段标为 true。\n"
-        "4. 自称、用户称呼和关系用语必须严格遵循 persona，"
+        "1. 只有改写后回答依次通过生成稳定性、角色一致性和对话质量检查，"
+        "才能把 final_checks 的对应字段标为 true。\n"
+        "2. 自称、用户称呼和关系用语必须遵循 persona，"
         "不得为了文艺感或变化用词而自行替换。\n"
-        "5. 先判断用户的核心问题。用户要求具体选择、判断、建议或信息时，"
+        "3. 先判断用户的核心问题。用户要求具体选择、判断、建议或信息时，"
         "improved_assistant 必须给出直接答案，角色化吐槽不能代替答案。\n\n"
         "【输出格式】\n"
         "只输出 JSON，不要 markdown。字段必须严格为：\n"
-        '{"scores":{"persona":0,"grounding":0,"style":0,"format":0,"quality":0},'
+        '{"scores":{"stability":0,"persona":0,"quality":0},'
         '"issues":["具体问题"],"decision":"keep | light_rewrite | rewrite",'
         '"improved_assistant":"最终回答",'
-        '"final_checks":{"persona_and_addressing":true,'
-        '"grounding_and_creativity":true,"format":true,'
-        '"directly_answers_user":true,"natural_dialogue":true}}'
+        '"final_checks":{"generation_stability":true,'
+        '"role_consistency":true,"dialogue_quality":true}}'
     )
 
 
@@ -309,12 +296,9 @@ def parse_teacher_audit(raw: str, user: str, baseline: str) -> dict[str, Any]:
 
 def validate_teacher_final_answer(answer: str) -> None:
     """Reject obvious training pollution before accepting a Teacher response."""
-    if not STYLE_RESPONSE_PATTERN.fullmatch(answer.strip()):
-        raise ValueError(
-            "improved_assistant 不符合一组全角括号动作 + 口语对白格式"
-        )
-    compact = re.sub(r"\s+", "", answer)
-    if re.search(r"(.{1,20}?)\1{3,}", compact):
+    if has_gibberish(answer):
+        raise ValueError("improved_assistant 包含不可读字符")
+    if has_repeated_span(answer):
         raise ValueError("improved_assistant 检测到明显连续复读")
 
 
@@ -678,12 +662,12 @@ def run_student_aware_sft(
 
 def _answer_checks(answer: str) -> dict[str, bool]:
     """Run the minimum automatic answer checks required by PLAN 1.3."""
-    compact = re.sub(r"\s+", "", answer)
     return {
         "non_empty": bool(answer.strip()),
-        "format_contract": bool(STYLE_RESPONSE_PATTERN.fullmatch(answer.strip())),
-        "no_obvious_repetition": not bool(
-            re.search(r"(.{1,20}?)\1{3,}", compact)
+        "no_gibberish": not has_gibberish(answer),
+        "no_obvious_repetition": not has_repeated_span(answer),
+        "format_contract_diagnostic": bool(
+            STYLE_RESPONSE_PATTERN.fullmatch(answer.strip())
         ),
     }
 
@@ -704,7 +688,10 @@ def build_pilot_report(
     ):
         improved = audit["improved_assistant"]
         checks = _answer_checks(improved)
-        final_answer_passed = all(checks.values())
+        final_answer_passed = all(
+            checks[name]
+            for name in ("non_empty", "no_gibberish", "no_obvious_repetition")
+        )
         checks["student_finished"] = baseline["finish_reason"] == "stop"
         items.append(
             {
@@ -744,9 +731,9 @@ def build_pilot_report(
         "manual_review": {
             "required": True,
             "criteria": [
-                "persona 与事实边界",
-                "风格自然度",
-                "格式契约",
+                "生成稳定性",
+                "角色一致性",
+                "对话质量",
                 "Teacher 是否为最小充分修改",
             ],
         },
@@ -791,9 +778,9 @@ def _render_pilot_review(report: dict[str, Any], report_digest: str) -> str:
                 "",
                 f"**Automatic pass**：`{item['automatic_pass']}`",
                 "",
-                "- [ ] persona / 事实边界合格",
-                "- [ ] 风格自然",
-                "- [ ] 格式合格",
+                "- [ ] 生成稳定",
+                "- [ ] 角色一致",
+                "- [ ] 对话有意义",
                 "- [ ] Teacher 修改最小且充分",
                 "- 备注：",
                 "",

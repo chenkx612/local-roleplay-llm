@@ -77,6 +77,14 @@ class ScenarioDistributionTests(unittest.TestCase):
 
     def test_scenarios_have_known_target_goals(self):
         goal_ids = {goal["id"] for goal in GOALS}
+        self.assertEqual(
+            tuple(goal["id"] for goal in GOALS),
+            (
+                "generation_stability",
+                "character_consistency",
+                "dialogue_quality",
+            ),
+        )
         covered_goals: set[str] = set()
         for scenario in SCENARIOS:
             self.assertTrue(scenario["target_goals"])
@@ -239,13 +247,13 @@ class NormalizationTests(unittest.TestCase):
 
 
 class PromptBuildingTests(unittest.TestCase):
-    def test_teacher_system_enforces_prompt_only_and_fact_boundary(self):
+    def test_teacher_system_enforces_prompt_only_and_core_boundaries(self):
         text = build_teacher_system(
             "PERSONA_TEXT", "EXAMPLES_TEXT", "摩尔加纳", "莲", ("吾辈",)
         )
         self.assertIn("PERSONA_TEXT", text)
         self.assertIn("EXAMPLES_TEXT", text)
-        self.assertIn("唯一来源", text)
+        self.assertIn("允许角色在不冲突的前提下自然发挥", text)
         self.assertIn("角色扮演目标", text)
         self.assertIn("不得写入用户 Prompt", text)
         self.assertIn("不要生成角色回答", text)
@@ -408,11 +416,12 @@ class JsonlTests(unittest.TestCase):
                 paths["style_examples"].read_bytes(), examples_path.read_bytes()
             )
             self.assertIn(
-                "全角括号", paths["system_prompt"].read_text(encoding="utf-8")
+                "动作或神态描写是可选的",
+                paths["system_prompt"].read_text(encoding="utf-8"),
             )
             self.assertTrue(paths["manifest"].is_file())
 
-    def test_load_examples_rejects_invalid_format_and_duplicate_users(self):
+    def test_load_examples_allows_free_format_but_rejects_duplicate_users(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "style_examples.jsonl"
             records = [
@@ -427,10 +436,8 @@ class JsonlTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(ValueError, "必须遵循"):
-                load_examples(path)
+            self.assertEqual(len(load_examples(path)), 10)
 
-            records[3]["assistant"] = "（点头）恢复格式"
             records[3]["user"] = records[2]["user"]
             path.write_text(
                 "".join(
@@ -576,7 +583,7 @@ class GenerateEndToEndTests(unittest.TestCase):
         system_prompt = (self.tmpdir / "system_prompt.txt").read_text(
             encoding="utf-8"
         )
-        self.assertIn("全角括号", system_prompt)
+        self.assertIn("动作或神态描写是可选的", system_prompt)
         manifest = json.loads(
             (self.tmpdir / "input_manifest.json").read_text(encoding="utf-8")
         )

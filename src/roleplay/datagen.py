@@ -1,14 +1,14 @@
 """Generate frozen SFT, GRPO, dev and evaluation prompts with DeepSeek.
 
 The teacher is prompted with the validated persona and a few in-character examples,
-then asked to emit user prompts covering the three role-play goals and five
+then asked to emit user prompts covering the three layered role-play goals and five
 scenario types required by PLAN.md §3.2:
 
     1. 日常对话
     2. 角色背景与人物关系
     3. 情绪与选择
     4. 语言风格
-    5. 出戏、冲突与未知事实
+    5. 出戏与冲突
 
 The MVP target size is intentionally small: 50 SFT / 20 GRPO / 10 dev /
 20 eval prompts. Prompt generation uses one reasoning-enabled oversampled batch
@@ -78,14 +78,14 @@ STYLE_RESPONSE_PATTERN = re.compile(r"^（[^（）\r\n]+）[^（）\r\n]+$")
 
 GOALS: tuple[dict[str, str], ...] = (
     {
-        "id": "character_consistency",
-        "name": "角色一致性",
-        "description": "触发身份、性格、关系、事实、边界和未知事实处理。",
+        "id": "generation_stability",
+        "name": "生成稳定性",
+        "description": "观察回复是否完整、连贯、可读，无乱码、严重复读或破坏性截断。",
     },
     {
-        "id": "format_consistency",
-        "name": "格式一致性",
-        "description": "观察模型能否稳定输出“全角括号动作/神态 + 口语对白”。",
+        "id": "character_consistency",
+        "name": "角色一致性",
+        "description": "观察身份、性格、关系、边界和语言风格是否符合 Persona。",
     },
     {
         "id": "dialogue_quality",
@@ -95,12 +95,12 @@ GOALS: tuple[dict[str, str], ...] = (
 )
 GOAL_BY_ID = {goal["id"]: goal for goal in GOALS}
 GOAL_LEAK_PATTERNS = (
+    "generation_stability",
     "character_consistency",
-    "format_consistency",
     "dialogue_quality",
     "target_goals",
+    "生成稳定性",
     "角色一致性",
-    "格式一致性",
     "对话质量",
     "评测目标",
     "评分标准",
@@ -112,21 +112,33 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "name": "日常对话",
         "description": "生活化闲聊、日常安排、吃饭出行、兴趣爱好等普通话题。",
         "hints": "用户话题应多样（起居、工作、天气、兴趣、计划等），避免连续追问同一主题。",
-        "target_goals": ("dialogue_quality", "character_consistency"),
+        "target_goals": (
+            "generation_stability",
+            "character_consistency",
+            "dialogue_quality",
+        ),
     },
     {
         "id": "background",
         "name": "角色背景与人物关系",
-        "description": "涉及角色身份、过往经历、已知事实、人物关系的问题。",
-        "hints": "部分问题可超出已知事实范围，角色应当场承认不知道或向用户确认，不要编造。",
-        "target_goals": ("character_consistency", "dialogue_quality"),
+        "description": "涉及角色身份、过往经历、想象空间和人物关系的问题。",
+        "hints": "问题可以给角色留下合理创作空间，但不要强迫角色接受与核心设定冲突的前提。",
+        "target_goals": (
+            "generation_stability",
+            "character_consistency",
+            "dialogue_quality",
+        ),
     },
     {
         "id": "emotion",
         "name": "情绪与选择",
         "description": "安慰、道歉、分歧、价值判断、情感表达等需要情绪拿捏的场景。",
         "hints": "用户情绪可正可负（沮丧、吃醋、兴奋、迷茫），角色表达要符合人设性格。",
-        "target_goals": ("dialogue_quality", "character_consistency"),
+        "target_goals": (
+            "generation_stability",
+            "character_consistency",
+            "dialogue_quality",
+        ),
     },
     {
         "id": "style",
@@ -134,19 +146,19 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "description": "最能体现角色说话风格、口头禅、语气特征的场景。",
         "hints": "设计能自然引出角色特色语气、用词和节奏的问题，避免直接要求复述示例。",
         "target_goals": (
+            "generation_stability",
             "character_consistency",
-            "format_consistency",
             "dialogue_quality",
         ),
     },
     {
         "id": "adversarial",
-        "name": "出戏、冲突与未知事实",
-        "description": "试图让角色出戏、引用冲突信息，或追问设定中不存在的事实和共同经历。",
-        "hints": "混合激将、反问、矛盾事实和未知信息；问题本身不要预设角色已经承认或做过某事。",
+        "name": "出戏与冲突",
+        "description": "试图让角色出戏、接受冲突身份，或在压力下偏离性格和关系。",
+        "hints": "混合激将、反问和矛盾前提，观察角色能否自然守住核心身份而不是机械拒绝。",
         "target_goals": (
+            "generation_stability",
             "character_consistency",
-            "format_consistency",
             "dialogue_quality",
         ),
     },
@@ -242,8 +254,8 @@ def build_teacher_system(
         "【角色扮演目标（仅用于设计覆盖面，不得写入用户 Prompt）】\n"
         f"{_render_goals()}\n\n"
         "【生成规则】\n"
-        "1. 角色设定是身份、关系、经历和事实的唯一来源。\n"
-        "2. 表达风格样例只用于理解适合引出何种表达，不得把样例中的事实或共同经历当成设定。\n"
+        "1. 角色设定定义核心身份、性格、关系和边界；允许角色在不冲突的前提下自然发挥。\n"
+        "2. 表达风格样例只用于理解表达方式，不得把样例中的用户经历或重大共同关系迁移到新对话。\n"
         f"3. 每条消息的说话人始终是{user_identity}，回复者始终是{persona_name}。"
         "不得交换二者视角。\n"
         f"4. 用户不得用{self_reference_rule}自称，不得从{persona_name}的第一人称"
@@ -252,7 +264,7 @@ def build_teacher_system(
         "6. Prompt 的长度、语气、话题、句式和互动目的应变化，避免同义改写和模板化。\n"
         "7. 每条 Prompt 都必须独立成立，不得引用未提供的上一轮对话。\n"
         "8. 不要在 Prompt 中代替角色回答，也不要要求复述角色设定。\n"
-        "9. 不要出现角色一致性、格式一致性、对话质量、评测目标、评分标准等元数据词。\n\n"
+        "9. 不要出现生成稳定性、角色一致性、对话质量、评测目标、评分标准等元数据词。\n\n"
         "【输出要求】\n"
         "严格按 JSON 格式输出，不要包含说明文字或 markdown 标记。\n"
         '格式为：{"prompts": ["用户 Prompt", "..."]}'
@@ -444,11 +456,6 @@ def load_examples(path: Path) -> list[dict[str, str]]:
                 raise ValueError(
                     f"style_examples.jsonl 第 {line_no} 行必须仅含非空 "
                     "user 和 assistant"
-                )
-            if not STYLE_RESPONSE_PATTERN.fullmatch(item["assistant"]):
-                raise ValueError(
-                    f"style_examples.jsonl 第 {line_no} 行 assistant 必须遵循"
-                    "“（简短动作或神态）口语对白”格式，且不得使用多层括号或换行"
                 )
             examples.append(item)
     if not MIN_STYLE_EXAMPLES <= len(examples) <= MAX_STYLE_EXAMPLES:

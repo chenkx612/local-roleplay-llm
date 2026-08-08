@@ -30,10 +30,12 @@ class PersonaValidationTests(unittest.TestCase):
         self.assertIs(validate_persona(data), data)
         self.assertIn("-  原始措辞 ", render_persona_prompt(data))
 
-    def test_rendered_prompt_contains_shared_format_contract(self):
+    def test_rendered_prompt_prioritizes_readability_and_allows_creativity(self):
         prompt = render_persona_prompt(persona())
-        self.assertIn("全角括号", prompt)
-        self.assertIn("禁止长篇旁白、额外标签和多层括号", prompt)
+        self.assertIn("完整、自然、可读", prompt)
+        self.assertIn("动作或神态描写是可选的", prompt)
+        self.assertIn("合理创作", prompt)
+        self.assertNotIn("必须遵循统一格式", prompt)
 
     def test_rejects_unknown_field(self):
         with self.assertRaisesRegex(PersonaValidationError, "未知字段"):

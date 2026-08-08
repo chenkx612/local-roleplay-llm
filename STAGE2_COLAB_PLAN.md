@@ -9,13 +9,13 @@
 → 完整 3 epochs QLoRA SFT
 → 检查有效梯度和 LoRA 更新
 → 三个 seed 的同后端 Base/SFT Dev 推理
-→ 自动相对行为门槛
+→ 自动生成稳定性门槛
 → 主 seed 匿名 A/B 人工复核
 ```
 
 本阶段不搜索超参数，也不单独运行 smoke 训练。相对前次计划只把训练从 1 epoch 提升为
 3 epochs，预计产生 12 个 optimizer step；模型、50 条训练数据、LoRA 结构、学习率和精度配置
-保持不变。一次运行只训练一次，不根据 Dev 自动重训。技术、自动行为和匿名人工三层门槛必须
+保持不变。一次运行只训练一次，不根据 Dev 自动重训。技术、生成稳定性和匿名人工三层门槛必须
 全部通过才允许进入阶段三；行为失败仍保留完整产物供复盘。
 
 ## 2. 固定决策
@@ -89,19 +89,18 @@ report_to: none
 5. 检查约 12 个 `grad_norm` 均有限且为正、所有 LoRA-B 张量非零，并计算 adapter SHA-256。
 6. 在 notebook 进程加载同一 HF Base；对 `20260807/08/09` 每个 seed，在 Base 和 SFT 推理前
    分别重置 Python、Torch 和 CUDA RNG，生成各 30 条输出并按 `(seed, id)` 对齐。
-7. 用仓库内纯 Python 逻辑规范化空 thinking wrapper，汇总严格格式、截断、复读、乱码、括号、
-   自称等问题，并执行相对行为门槛。
+7. 用仓库内纯 Python 逻辑规范化空 thinking wrapper，汇总截断、复读和乱码并执行生成稳定性
+   门槛；严格动作格式、emoji、括号位置、长度和自称只保存为诊断统计。
 8. 为主 seed 的 10 对输出生成固定匿名顺序的复核包和独立答案映射；提交人工结果后更新最终
    GRPO 决策。最后只复制核心产物到 Drive 并删除 Colab 临时训练目录。
 
 技术门槛要求训练正常结束、LoRA 确实更新、adapter 能重新加载，以及 Base/SFT 各 30 条完整、
-非空和对齐。自动相对行为门槛要求：SFT 的 `stop` 数不低于 Base，截断和退化数不高于 Base，
-严格格式率至少提高 20 个百分点，“吾辈”比例提高，且“本大爷/本喵”错误别称比例降低。
-任一项失败时状态为 `behavior_failed`，产物照常归档但禁止进入 GRPO。
+非空和对齐。自动生成稳定性门槛要求：SFT 的 `stop` 数不低于 Base、截断不高于 Base、没有严重
+复读或乱码。任一项失败时状态为 `stability_failed`，产物照常归档但禁止进入 GRPO。
 
-自动门槛通过后，匿名人工复核按角色一致性、事实依据、风格、格式自然度和对话质量评分，并记录
-幻觉、视角错位和乱码等严重问题。SFT 必须至少胜出 6 对、明显落后不超过 2 对、没有严重问题；
-两条 emotion 样本不得落后，也不得出现视角错位或乱码。
+自动门槛通过后，匿名人工复核按生成稳定性、角色一致性和对话质量评分。SFT 必须至少胜出 6 对、
+明显落后不超过 2 对、没有不可读、角色崩坏或视角错位等严重问题，且三个维度平均分均不得低于
+Base。合理的角色化创作不因缺少外置事实依据而扣分。
 
 ## 5. 产物目录
 
@@ -124,7 +123,7 @@ roleplay/morgana-v1/stage2-sft/<run-id>/
 ```
 
 `run_summary.json` 统一保存 run/commit、环境版本、输入哈希、训练命令与指标、adapter 更新统计、
-`evaluation_seeds`、两组 Dev 检查、`relative_behavior_gate`、`manual_review`、
+`evaluation_seeds`、两组 Dev 检查、`core_behavior_gate`、`manual_review`、
 `ready_for_grpo` 和文件哈希。规范化输出与 `raw_assistant` 同行保存，不另建 raw 文件。临时
 messages、推理脚本、optimizer 状态以及拆分的 context/validation/metadata/notes/command 文件
 均不归档。训练技术失败时最多保存摘要和已有训练日志，不复制半成品 checkpoint。
@@ -134,7 +133,7 @@ messages、推理脚本、optimizer 状态以及拆分的 context/validation/met
 - [ ] 环境、仓库 commit、模型 revision、冻结输入和实际配置已记录。
 - [ ] 3 epochs 正常结束，约 12 个有限正梯度，LoRA-B 已全量更新且 adapter 可重载。
 - [ ] 同后端 Base/SFT Dev 各 30 条完整非空并按 `(seed, id)` 对齐；同 seed 重跑可复现。
-- [ ] 自动相对行为门槛通过；否则状态明确为 `behavior_failed` 且未进入 GRPO。
+- [ ] 自动生成稳定性门槛通过；否则状态明确为 `stability_failed` 且未进入 GRPO。
 - [ ] 主 seed 匿名人工门槛通过，最终 `ready_for_grpo` 等于三层门槛的逻辑与。
 - [ ] Drive 目录只包含约定的 11 个核心文件，不含临时或断点续训产物。
 - [ ] 实际结果和是否进入 GRPO 的决定已写入 `RUNLOG.md`。

@@ -8,8 +8,9 @@ from roleplay.sft_eval import (
     MANUAL_SCORE_DIMENSIONS,
     build_manual_review,
     empty_manual_review_results,
+    evaluate_core_behavior_gate,
     evaluate_manual_review,
-    evaluate_relative_behavior_gate,
+    has_gibberish,
     inspect_output,
     normalize_empty_think_wrapper,
     summarize_outputs,
@@ -68,7 +69,7 @@ def passing_manual_results(packet, answer_key):
                 "severe_issues": {"A": [], "B": []},
             }
         )
-    return {"schema_version": 1, "results": results}
+    return {"schema_version": 2, "results": results}
 
 
 class OutputInspectionTests(unittest.TestCase):
@@ -107,6 +108,9 @@ class OutputInspectionTests(unittest.TestCase):
         repeated = self.inspect("（点头）" + "abcdefghijkl" * 3)
         self.assertTrue(repeated["repeated_span"])
         self.assertTrue(repeated["degenerate"])
+        short_loop = self.inspect("哈" * 35)
+        self.assertTrue(short_loop["repeated_span"])
+        self.assertFalse(self.inspect("吾辈才没有哈哈哈哈！")["repeated_span"])
         for answer in (
             "（点头）回答😀",
             "（点头）回答！！！！",
@@ -119,6 +123,10 @@ class OutputInspectionTests(unittest.TestCase):
                     result["abnormal_symbols"] or result["unclosed_brackets"]
                 )
                 self.assertTrue(result["degenerate"])
+
+    def test_gibberish_detection_does_not_treat_emoji_as_unreadable(self):
+        self.assertFalse(has_gibberish("吾辈知道了 😏🐾✨ 🧑‍💻 👨‍👩‍👧‍👦"))
+        self.assertTrue(has_gibberish("ΣΥΧΡΟΣΔΕΖΗΟΙΚΤΣΥΧΡΟΣ"))
 
     def test_detects_signature_and_wrong_self_references(self):
         good = self.inspect("（叉腰）吾辈当然知道。")
@@ -159,29 +167,24 @@ class AutomaticGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "未对齐"):
             validate_aligned_outputs(self.base, misaligned, EVALUATION_SEEDS, IDS)
 
-    def test_relative_gate_passes_all_fixed_improvement_requirements(self):
-        gate = evaluate_relative_behavior_gate(
+    def test_core_gate_passes_stable_generation_requirements(self):
+        gate = evaluate_core_behavior_gate(
             self.base, self.sft, EVALUATION_SEEDS, IDS
         )
         self.assertTrue(gate["passed"])
+        self.assertEqual(gate["goal"], "generation_stability")
         self.assertTrue(all(gate["checks"].values()))
 
-    def test_strict_format_improvement_accepts_exact_20_point_boundary(self):
-        sft = make_rows(
-            lambda seed, index: (
-                "（点头）吾辈知道了。"
-                if seed == EVALUATION_SEEDS[0] and index <= 6
-                else "(点头)吾辈知道了。"
-            )
-        )
-        gate = evaluate_relative_behavior_gate(
+    def test_format_and_emoji_are_diagnostics_not_gate_requirements(self):
+        sft = make_rows(lambda _seed, _index: "吾辈知道了 🧑‍💻")
+        gate = evaluate_core_behavior_gate(
             self.base, sft, EVALUATION_SEEDS, IDS
         )
-        self.assertEqual(gate["sft"]["overall"]["strict_format_rate"], 0.2)
-        self.assertTrue(gate["checks"]["strict_format_rate_improved_by_20pp"])
+        self.assertEqual(gate["sft"]["overall"]["strict_format_rate"], 0.0)
+        self.assertEqual(len(gate["sft"]["overall"]["abnormal_symbol_ids"]), 30)
         self.assertTrue(gate["passed"])
 
-    def test_relative_gate_fails_each_directional_regression(self):
+    def test_core_gate_fails_each_stability_regression(self):
         cases = {}
         fewer_stops = copy.deepcopy(self.sft)
         fewer_stops[0]["finish_reason"] = "cancelled"
@@ -189,20 +192,15 @@ class AutomaticGateTests(unittest.TestCase):
         truncated = copy.deepcopy(self.sft)
         truncated[0]["finish_reason"] = "length"
         cases["truncation_count_not_higher"] = truncated
-        degenerate = copy.deepcopy(self.sft)
-        degenerate[0]["assistant"] += "😀"
-        cases["degeneration_count_not_higher"] = degenerate
-        no_format_gain = make_rows(lambda _seed, _index: "(点头)吾辈知道了。")
-        cases["strict_format_rate_improved_by_20pp"] = no_format_gain
-        no_signature_gain = make_rows(lambda _seed, _index: "（点头）回答。")
-        cases["signature_self_reference_rate_higher"] = no_signature_gain
-        no_alias_reduction = make_rows(
-            lambda _seed, _index: "（点头）吾辈本喵知道了。"
-        )
-        cases["wrong_self_reference_rate_lower"] = no_alias_reduction
+        repeated = copy.deepcopy(self.sft)
+        repeated[0]["assistant"] = "哈" * 35
+        cases["no_repeated_spans"] = repeated
+        gibberish = copy.deepcopy(self.sft)
+        gibberish[0]["assistant"] += "ΣΥΧΡΟΣΔΕΖΗΟΙΚΤΣΥΧΡΟΣ"
+        cases["no_gibberish"] = gibberish
         for failed_check, rows in cases.items():
             with self.subTest(failed_check=failed_check):
-                gate = evaluate_relative_behavior_gate(
+                gate = evaluate_core_behavior_gate(
                     self.base, rows, EVALUATION_SEEDS, IDS
                 )
                 self.assertFalse(gate["checks"][failed_check])
@@ -237,6 +235,9 @@ class ManualReviewTests(unittest.TestCase):
         blank = empty_manual_review_results(self.packet)
         self.assertEqual(blank["results"], [])
         self.assertEqual(len(blank["expected_review_ids"]), 10)
+        self.assertEqual(
+            self.packet["score_dimensions"], list(MANUAL_SCORE_DIMENSIONS)
+        )
 
     def test_manual_gate_passes_thresholds(self):
         result = evaluate_manual_review(
@@ -273,7 +274,7 @@ class ManualReviewTests(unittest.TestCase):
         severe = passing_manual_results(self.packet, self.answer_key)
         first = severe["results"][0]
         first["severe_issues"][mapping[first["review_id"]]["sft_label"]] = [
-            "hallucination"
+            "role_break"
         ]
         cases["sft_has_no_severe_issues"] = severe
         for failed_check, artifact in cases.items():
@@ -284,24 +285,19 @@ class ManualReviewTests(unittest.TestCase):
                 self.assertFalse(result["checks"][failed_check])
                 self.assertFalse(result["passed"])
 
-    def test_emotion_samples_cannot_lose_or_have_perspective_or_gibberish(self):
+    def test_manual_gate_requires_each_core_score_not_to_regress(self):
         artifact = passing_manual_results(self.packet, self.answer_key)
-        emotion_item = next(
-            item for item in self.packet["items"] if item["scenario"] == "emotion"
-        )
-        result = next(
-            row for row in artifact["results"]
-            if row["review_id"] == emotion_item["review_id"]
-        )
-        mapping = next(
-            row for row in self.answer_key["answers"]
-            if row["review_id"] == emotion_item["review_id"]
-        )
-        result["winner"] = mapping["base_label"]
-        result["severe_issues"][mapping["sft_label"]] = ["perspective_shift"]
+        mapping = {
+            item["review_id"]: item for item in self.answer_key["answers"]
+        }
+        for result in artifact["results"]:
+            labels = mapping[result["review_id"]]
+            result["scores"][labels["base_label"]]["role_consistency"] = 9
+            result["scores"][labels["sft_label"]]["role_consistency"] = 7
         gate = evaluate_manual_review(self.packet, self.answer_key, artifact)
-        self.assertFalse(gate["checks"]["emotion_samples_pass"])
-        self.assertIn(emotion_item["review_id"], gate["emotion_failure_ids"])
+        self.assertFalse(
+            gate["checks"]["sft_role_consistency_score_not_lower"]
+        )
 
 
 if __name__ == "__main__":

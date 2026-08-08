@@ -9,43 +9,31 @@
 
 ## 待解决问题
 
-阶段一问题已于 2026-08-07 完成处理或形成明确决策。阶段二首次运行无有效参数更新，当前
-阻断进入 GRPO；必须完成重训并通过机械和人工验收。
+阶段一问题已于 2026-08-07 完成处理或形成明确决策。第三次 SFT 已产生有效参数更新；当前
+阻断项是新版生成稳定性门槛仍发现一条不可读输出，且三目标匿名人工复核尚未完成。
 
-### P0｜首次 SFT 的 LoRA-B 全部保持初始化零值
+### P0｜第三次 SFT 仍有一条不可读输出
 
-**位置：** `output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/full/logging.jsonl`、
-`output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/full/checkpoint-4/adapter_model.safetensors`
+**位置：** `output/morgana-v1/stage2-sft/3/dev_outputs.jsonl`、
+`output/morgana-v1/stage2-sft/3/run_summary.json`
 
-**现象：** 四个训练 step 的 loss 均为有限正数，但 `grad_norm` 全部为 `NaN`。直接读取最终
-safetensors 后确认：372 个 adapter 张量全部有限，186 个 LoRA-A 张量为随机初始化值，186 个
-LoRA-B 张量全部精确为零，LoRA-B 非零元素总数为 0。LoRA 初始 B 为零，因此 optimizer 没有
-形成任何有效 adapter 更新；“checkpoint 可加载并能生成”只证明序列化和 Base 推理可用。
+**现象：** 新版生成稳定性门槛下，完整对齐、结束数、截断和严重复读均通过，但
+`20260808:dev_0010` 后半段出现连续希腊字母和随机字符，`no_gibberish=false`。严格动作格式、
+emoji 和自称频率已降级为诊断指标，不是本问题的阻断原因。
 
-**原因判断：** 首次配置在 T4 上使用 FP16 模型、FP16 BNB compute，且 LoRA dtype 跟随默认
-行为成为 FP16。结合连续非有限 `grad_norm` 和零更新，最可能是 AMP 梯度溢出导致四次 step
-全部跳过。此前 notebook 只检查 loss 和可加载性，没有检查梯度及权重是否实际变化。
+**处理与验收：** 保留第三次产物作为有效训练证据，不通过修改评估规则掩盖不可读样本。后续
+候选必须没有乱码或严重复读，稳定性通过后再进行角色一致性和对话质量匿名复核。
 
-**修复与验收：** 第三轮保持数据、模型 revision、LoRA 结构、学习率和 FP32 精度配置不变，
-仅将训练从 1 epoch 提升为 3 epochs。正式训练必须得到约 12 个有限正 `grad_norm`、全部 LoRA-B
-张量含非零元素且 adapter 全部有限；任一断言失败即停止。重训和两层行为验收完成前，阶段二
-保持未完成，禁止进入 GRPO。
+### P1｜角色一致性与对话质量尚未完成人工复核
 
-### P1｜首次 Transformers Dev 全量格式失败且半数截断
+**位置：** `output/morgana-v1/stage2-sft/3/manual_review_packet.json`、
+`output/morgana-v1/stage2-sft/3/manual_review_results.json`
 
-**位置：** `output/morgana-v1/stage2-sft/20260807T170226Z-ad78fb8f/dev_outputs.jsonl`、
-`RUNLOG.md` 的“阶段二：LoRA SFT”
+**现象：** 第三次归档的人工结果为空。旧版流程因严格格式门槛失败而未启动复核；新版已取消
+格式和事实可靠性独立目标，但仍需判断核心身份、性格、关系、回应相关性和自然度。
 
-**现象：** 无效 adapter 重载后生成 10/10 非空回答，但 10/10 未以规定的全角动作括号开头，
-10/10 带额外 `<think></think>` 标签，5/10 达到 256-token 上限。样本还出现过量 emoji、
-冗长转题、虚构背景、非标志性自称和情绪支持不当。由于 LoRA-B 未更新，这些输出主要反映
-上游 HF Base + Transformers 模板/采样栈，不能当作 SFT 的负向效果。
-
-**修复与验收：** 重训 notebook 会在同一 Transformers backend、同一上游 revision 下额外生成
-无 adapter Base，移除协议层空 `<think></think>` wrapper 后比较。三个固定 seed 下 Base/SFT
-各 30 条必须完整对齐；SFT 的结束、截断、退化、严格格式和角色自称须通过相对自动门槛，随后
-主 seed 匿名人工比较还须达到胜负、严重问题和 emotion 专项门槛。任一行为门槛失败都归档证据，
-但不得进入 GRPO。
+**处理与验收：** 生成稳定性通过后，按三个核心目标复核主 seed 10 对回答；SFT 至少胜 6 对、
+明显落后不超过 2 对、无不可读/角色崩坏/视角错位严重问题，且三个维度平均分均不低于 Base。
 
 ### P2｜Base/SFT 初步比较存在推理后端混杂
 
@@ -62,6 +50,13 @@ ms-swift TransformersEngine。Persona、Dev 和主要采样参数相同，但 SF
 Base/SFT/GRPO 输出。
 
 ## 已解决问题
+
+### P0｜首次 SFT 的 LoRA-B 全部保持初始化零值
+
+首次 FP16 运行的四个 `grad_norm` 全为 `NaN`，186 个 LoRA-B 张量全部为零。第三次改用既定
+FP32 QLoRA 配置并训练 3 epochs 后，12 个梯度均有限且为正，186/186 个 LoRA-B 张量均非零，
+adapter 可重新加载；该技术阻断已解决。完整证据见 `RUNLOG.md` 和
+`output/morgana-v1/stage2-sft/3/run_summary.json`。
 
 ### P1｜单条推理失败会被吞掉，命令仍声称整批完成
 

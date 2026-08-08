@@ -53,10 +53,8 @@ def audit_json(
     return json.dumps(
         {
             "scores": {
+                "stability": 9,
                 "persona": 9,
-                "grounding": 8,
-                "style": 9,
-                "format": 9,
                 "quality": 8,
             },
             "issues": [],
@@ -64,11 +62,9 @@ def audit_json(
             "improved_assistant": baseline if improved is None else improved,
             "final_checks": final_checks
             or {
-                "persona_and_addressing": True,
-                "grounding_and_creativity": True,
-                "format": True,
-                "directly_answers_user": True,
-                "natural_dialogue": True,
+                "generation_stability": True,
+                "role_consistency": True,
+                "dialogue_quality": True,
             },
         },
         ensure_ascii=False,
@@ -102,24 +98,19 @@ class _FakeClient:
 
 
 class TeacherAuditTests(unittest.TestCase):
-    def test_teacher_prompt_contains_fact_boundary_and_examples(self):
+    def test_teacher_prompt_contains_three_layered_goals_and_creative_boundary(self):
         prompt = build_teacher_system("PERSONA", "EXAMPLES")
         self.assertIn("PERSONA", prompt)
         self.assertIn("EXAMPLES", prompt)
-        self.assertIn("最高优先级依据", prompt)
-        self.assertIn("原作设定", prompt)
-        self.assertIn("非持久性创造", prompt)
+        self.assertIn("生成稳定性 stability", prompt)
+        self.assertIn("角色一致性 persona", prompt)
+        self.assertIn("对话质量 quality", prompt)
+        self.assertIn("合理的角色化想象", prompt)
         self.assertIn("最小充分修改", prompt)
-        self.assertIn("预设", prompt)
-        self.assertIn("用户个人信息", prompt)
-        self.assertIn("持续状态", prompt)
-        self.assertIn("格式契约 format", prompt)
-        self.assertIn("全角括号", prompt)
+        self.assertIn("用户个人经历", prompt)
+        self.assertIn("动作括号、emoji 和固定开头不作硬性要求", prompt)
         self.assertIn("改写后必做自检", prompt)
-        self.assertIn("不能因为某个细节来自 baseline 就保留它", prompt)
-        self.assertIn("不要误删符合原作的细节", prompt)
-        self.assertIn("口语对白中不得再出现任何动作括号", prompt)
-        self.assertIn('"format":0', prompt)
+        self.assertIn('"stability":0', prompt)
 
     def test_parses_keep_audit_and_adds_context_fields(self):
         audit = parse_teacher_audit(audit_json("原回答"), "问题", "原回答")
@@ -468,7 +459,7 @@ class StudentAwarePipelineTests(unittest.TestCase):
         self.assertEqual(call["extra_body"]["thinking"], {"type": "enabled"})
         self.assertEqual(call["extra_body"]["reasoning_effort"], "high")
 
-    def test_teacher_retries_when_final_answer_breaks_format_contract(self):
+    def test_teacher_accepts_natural_answer_without_fixed_format(self):
         baseline = "（点头）原回答"
         teacher = _FakeClient(
             [
@@ -477,14 +468,6 @@ class StudentAwarePipelineTests(unittest.TestCase):
                         baseline,
                         decision="rewrite",
                         improved="（点头）第一句（挥手）第二句",
-                    ),
-                    "stop",
-                ),
-                (
-                    audit_json(
-                        baseline,
-                        decision="rewrite",
-                        improved="（点头）合格回答",
                     ),
                     "stop",
                 ),
@@ -500,17 +483,15 @@ class StudentAwarePipelineTests(unittest.TestCase):
             item_label="样本 1",
         )
 
-        self.assertEqual(attempts, 2)
-        self.assertEqual(audit["improved_assistant"], "（点头）合格回答")
+        self.assertEqual(attempts, 1)
+        self.assertEqual(audit["improved_assistant"], "（点头）第一句（挥手）第二句")
 
     def test_teacher_retries_when_semantic_final_check_is_false(self):
         baseline = "（点头）原回答"
         failed_checks = {
-            "persona_and_addressing": True,
-            "grounding_and_creativity": True,
-            "format": True,
-            "directly_answers_user": False,
-            "natural_dialogue": True,
+            "generation_stability": True,
+            "role_consistency": True,
+            "dialogue_quality": False,
         }
         teacher = _FakeClient(
             [
@@ -690,7 +671,7 @@ class PilotPipelineTests(unittest.TestCase):
         self.assertIn("报告 SHA256", outputs["review"].read_text(encoding="utf-8"))
         self.assertEqual(len(outputs["prompts"].read_text().splitlines()), 5)
 
-    def test_report_flags_invalid_final_format_for_manual_review(self):
+    def test_report_keeps_old_format_check_as_non_blocking_diagnostic(self):
         prompts = [
             {
                 "id": f"sft_{index:04d}",
@@ -718,8 +699,12 @@ class PilotPipelineTests(unittest.TestCase):
 
         report = build_pilot_report(prompts, baselines, audits)
 
-        self.assertEqual(report["status"], "manual_review_required")
-        self.assertFalse(report["items"][0]["automatic_checks"]["format_contract"])
+        self.assertEqual(report["status"], "automatic_checks_passed")
+        self.assertFalse(
+            report["items"][0]["automatic_checks"][
+                "format_contract_diagnostic"
+            ]
+        )
 
     def test_teacher_only_rerun_keeps_frozen_baselines(self):
         self.write_scenario_prompts()

@@ -15,10 +15,8 @@ MANUAL_REVIEW_ORDER_SEED = 20260807
 TRUNCATED_FINISH_REASONS = frozenset({"length", "max_tokens"})
 WRONG_SELF_REFERENCES = ("本大爷", "本喵")
 MANUAL_SCORE_DIMENSIONS = (
+    "generation_stability",
     "role_consistency",
-    "grounding",
-    "style",
-    "format_naturalness",
     "dialogue_quality",
 )
 
@@ -39,14 +37,30 @@ def normalize_empty_think_wrapper(raw_assistant: str) -> str:
 
 
 def has_repeated_span(text: str, span: int = 12, repeats: int = 3) -> bool:
-    """Return whether a fixed compact span occurs at least ``repeats`` times."""
+    """Return whether compact text contains a repeated span or short loop."""
     if span <= 0 or repeats <= 1:
         raise ValueError("span 必须为正数且 repeats 必须大于 1")
     compact = re.sub(r"\s+", "", text)
-    return any(
+    fixed_span_repeated = any(
         compact.count(compact[index : index + span]) >= repeats
         for index in range(max(0, len(compact) - span + 1))
     )
+    if fixed_span_repeated:
+        return True
+
+    # Catch degenerate loops such as "哈哈哈……" without rejecting brief,
+    # natural emphasis. A loop must occupy at least 24 characters and repeat
+    # its short unit at least six times.
+    for start in range(max(0, len(compact) - 23)):
+        for period in range(1, min(6, len(compact) - start) + 1):
+            unit = compact[start : start + period]
+            end = start
+            while compact.startswith(unit, end):
+                end += period
+            run_length = end - start
+            if run_length >= 24 and run_length // period >= 6:
+                return True
+    return False
 
 
 def has_abnormal_symbols(text: str) -> bool:
@@ -55,7 +69,11 @@ def has_abnormal_symbols(text: str) -> bool:
     for character in text:
         codepoint = ord(character)
         category = unicodedata.category(character)
-        is_control = category.startswith("C") and not character.isspace()
+        is_control = (
+            category.startswith("C")
+            and not character.isspace()
+            and character != "\u200d"
+        )
         if character == "\ufffd" or is_control:
             return True
         if any(start <= codepoint <= end for start, end in _EMOJI_RANGES):
@@ -63,6 +81,42 @@ def has_abnormal_symbols(text: str) -> bool:
         if category[0] in {"P", "S"}:
             symbol_run += 1
             if symbol_run >= 4:
+                return True
+        else:
+            symbol_run = 0
+    return False
+
+
+def has_gibberish(text: str) -> bool:
+    """Detect unreadable corruption without treating ordinary emoji as failure."""
+    foreign_letter_run = 0
+    symbol_run = 0
+    for character in text:
+        category = unicodedata.category(character)
+        name = unicodedata.name(character, "")
+        is_control = (
+            category.startswith("C")
+            and not character.isspace()
+            and character != "\u200d"
+        )
+        if character == "\ufffd" or is_control:
+            return True
+
+        if category.startswith("L") and (
+            "GREEK" in name or "CYRILLIC" in name
+        ):
+            foreign_letter_run += 1
+            if foreign_letter_run >= 12:
+                return True
+        else:
+            foreign_letter_run = 0
+
+        is_emoji = any(
+            start <= ord(character) <= end for start, end in _EMOJI_RANGES
+        )
+        if category[0] in {"P", "S"} and not is_emoji:
+            symbol_run += 1
+            if symbol_run >= 12:
                 return True
         else:
             symbol_run = 0
@@ -106,6 +160,7 @@ def inspect_output(record: dict[str, Any]) -> dict[str, Any]:
     )
     repeated = has_repeated_span(answer)
     abnormal_symbols = has_abnormal_symbols(answer)
+    gibberish = has_gibberish(answer)
     unclosed_brackets = _has_unclosed_brackets(answer)
     truncated = record.get("finish_reason") in TRUNCATED_FINISH_REASONS
     wrong_self_reference = any(alias in answer for alias in WRONG_SELF_REFERENCES)
@@ -116,6 +171,7 @@ def inspect_output(record: dict[str, Any]) -> dict[str, Any]:
         "truncated": truncated,
         "repeated_span": repeated,
         "abnormal_symbols": abnormal_symbols,
+        "gibberish": gibberish,
         "unclosed_brackets": unclosed_brackets,
         "extra_tags": has_tags,
         "uses_signature_self_reference": "吾辈" in answer,
@@ -181,6 +237,7 @@ def _summarize_validated_rows(
         "truncated_ids": "truncated",
         "repetition_issue_ids": "repeated_span",
         "abnormal_symbol_ids": "abnormal_symbols",
+        "gibberish_ids": "gibberish",
         "unclosed_bracket_ids": "unclosed_brackets",
         "extra_tag_ids": "extra_tags",
         "wrong_self_reference_ids": "uses_wrong_self_reference",
@@ -216,6 +273,7 @@ def _summarize_validated_rows(
         "strict_format_rate": strict_count / count if count else 0.0,
         "truncation_count": len(issues["truncated_ids"]),
         "degeneration_count": len(issues["degeneration_ids"]),
+        "gibberish_count": len(issues["gibberish_ids"]),
         "signature_self_reference_count": signature_count,
         "signature_self_reference_rate": signature_count / count if count else 0.0,
         "wrong_self_reference_count": wrong_count,
@@ -277,13 +335,13 @@ def validate_aligned_outputs(
     return True
 
 
-def evaluate_relative_behavior_gate(
+def evaluate_core_behavior_gate(
     base_rows: Sequence[dict[str, Any]],
     sft_rows: Sequence[dict[str, Any]],
     expected_seeds: Sequence[int],
     expected_ids: Sequence[str],
 ) -> dict[str, Any]:
-    """Evaluate the fixed automatic SFT-vs-Base behavioral gate."""
+    """Evaluate the first core goal: readable and stable generation."""
     aligned = validate_aligned_outputs(
         base_rows, sft_rows, expected_seeds, expected_ids
     )
@@ -304,27 +362,28 @@ def evaluate_relative_behavior_gate(
         "truncation_count_not_higher": (
             sft_all["truncation_count"] <= base_all["truncation_count"]
         ),
-        "degeneration_count_not_higher": (
-            sft_all["degeneration_count"] <= base_all["degeneration_count"]
-        ),
-        "strict_format_rate_improved_by_20pp": (
-            sft_all["strict_format_rate"] - base_all["strict_format_rate"] >= 0.20
-        ),
-        "signature_self_reference_rate_higher": (
-            sft_all["signature_self_reference_rate"]
-            > base_all["signature_self_reference_rate"]
-        ),
-        "wrong_self_reference_rate_lower": (
-            sft_all["wrong_self_reference_rate"]
-            < base_all["wrong_self_reference_rate"]
-        ),
+        "no_repeated_spans": not sft_all["repetition_issue_ids"],
+        "no_gibberish": sft_all["gibberish_count"] == 0,
     }
     return {
+        "goal": "generation_stability",
         "passed": all(checks.values()),
         "checks": checks,
         "base": base,
         "sft": sft,
     }
+
+
+def evaluate_relative_behavior_gate(
+    base_rows: Sequence[dict[str, Any]],
+    sft_rows: Sequence[dict[str, Any]],
+    expected_seeds: Sequence[int],
+    expected_ids: Sequence[str],
+) -> dict[str, Any]:
+    """Compatibility alias for the core generation-stability gate."""
+    return evaluate_core_behavior_gate(
+        base_rows, sft_rows, expected_seeds, expected_ids
+    )
 
 
 def build_manual_review(
@@ -375,19 +434,19 @@ def build_manual_review(
             }
         )
     packet = {
-        "schema_version": 1,
+        "schema_version": 2,
         "primary_seed": primary_seed,
         "order_seed": order_seed,
         "score_dimensions": list(MANUAL_SCORE_DIMENSIONS),
         "severe_issue_examples": [
-            "hallucination",
+            "unreadable",
+            "role_break",
             "perspective_shift",
-            "gibberish",
         ],
         "items": items,
     }
     answer_key = {
-        "schema_version": 1,
+        "schema_version": 2,
         "primary_seed": primary_seed,
         "order_seed": order_seed,
         "answers": answers,
@@ -398,11 +457,11 @@ def build_manual_review(
 def empty_manual_review_results(packet: dict[str, Any]) -> dict[str, Any]:
     """Return a standalone blank result artifact with the expected schema."""
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "instructions": {
             "winner": "A、B 或 tie",
             "clearly_worse": "A、B 或 null",
-            "scores": "A/B 各按五个维度给 0～10 整数分",
+            "scores": "A/B 各按三个核心目标给 0～10 整数分",
             "severe_issues": (
                 "A/B 各填写严重问题代码列表，无则为空列表"
             ),
@@ -466,7 +525,10 @@ def evaluate_manual_review(
     sft_wins = 0
     sft_clear_losses = 0
     sft_severe_issue_ids = []
-    emotion_failures = []
+    score_totals = {
+        model: {dimension: 0 for dimension in MANUAL_SCORE_DIMENSIONS}
+        for model in ("base", "sft")
+    }
     for review_id, result in result_by_review.items():
         if set(result) != {
             "review_id",
@@ -503,23 +565,32 @@ def evaluate_manual_review(
         sft_severe = severe[sft_label]
         if sft_severe:
             sft_severe_issue_ids.append(review_id)
-        if item_by_review[review_id].get("scenario") == "emotion":
-            emotion_bad = (
-                result["winner"] == base_label
-                or result["clearly_worse"] == sft_label
-                or any(
-                    issue in {"perspective_shift", "gibberish"}
-                    for issue in sft_severe
-                )
-            )
-            if emotion_bad:
-                emotion_failures.append(review_id)
+        for dimension in MANUAL_SCORE_DIMENSIONS:
+            score_totals["base"][dimension] += result["scores"][base_label][
+                dimension
+            ]
+            score_totals["sft"][dimension] += result["scores"][sft_label][
+                dimension
+            ]
+
+    mean_scores = {
+        model: {
+            dimension: total / len(results)
+            for dimension, total in dimensions.items()
+        }
+        for model, dimensions in score_totals.items()
+    }
 
     checks = {
         "sft_wins_at_least_6": sft_wins >= 6,
         "sft_clear_losses_at_most_2": sft_clear_losses <= 2,
         "sft_has_no_severe_issues": not sft_severe_issue_ids,
-        "emotion_samples_pass": not emotion_failures,
+        **{
+            f"sft_{dimension}_score_not_lower": (
+                mean_scores["sft"][dimension] >= mean_scores["base"][dimension]
+            )
+            for dimension in MANUAL_SCORE_DIMENSIONS
+        },
     }
     return {
         "passed": all(checks.values()),
@@ -528,5 +599,5 @@ def evaluate_manual_review(
         "sft_wins": sft_wins,
         "sft_clear_losses": sft_clear_losses,
         "sft_severe_issue_ids": sft_severe_issue_ids,
-        "emotion_failure_ids": emotion_failures,
+        "mean_scores": mean_scores,
     }
