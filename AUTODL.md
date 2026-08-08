@@ -85,22 +85,59 @@ watch -n 2 nvidia-smi
 output/morgana-v2/stage2-sft/<run-id>/
 ```
 
-成功时只保留 adapter、训练配置、日志、Base/SFT Dev 输出、人工复核文件和 run summary。
-失败时 `run_summary.json` 会记录失败阶段，并保留 `.work/<run-id>` 诊断目录。
+成功时只保留 adapter、训练配置、Base/SFT Dev 输出、人工复核文件和 run summary。完整训练日志和
+checkpoint 只存在于临时工作目录；成功归档后自动删除，训练曲线和梯度摘要已经写入
+`run_summary.json`。失败时 run 目录只保留 `run_summary.json`，完整日志和 checkpoint 留在
+`.work/<run-id>` 供 AutoDL 现场诊断，不通过 GitHub 同步。
 
-## 3. 人工复核与下载
+## 3. AutoDL 发布
 
-填写 run 目录中的 `manual_review_results.json` 后执行：
+GitHub CLI 只需首次安装和登录。若镜像没有 `gh`，参考
+[GitHub CLI 官方 Linux 安装说明](https://github.com/cli/cli/blob/trunk/docs/install_linux.md)。
+
+```bash
+gh auth login
+```
+
+训练和自动评测完成后直接发布，不在 AutoDL 做人工复核：
+
+```bash
+roleplay-stage2-sft publish \
+  --run-dir output/morgana-v2/stage2-sft/<run-id>
+```
+
+`publish` 自动精简旧产物、校验归档、生成哈希清单并上传 GitHub Release。它只保留后续需要的
+adapter 和评测/复核材料；日志、checkpoint 和 `.work` 不上传。记下命令打印的 Release tag，
+随后即可释放 AutoDL 实例。
+
+## 4. 本地下载与人工复核
+
+本地更新代码并下载发布包：
+
+```bash
+cd /Users/chenkx/roleplay
+git pull --ff-only
+python -m pip install -e .
+roleplay-stage2-sft download --tag <Release-tag>
+```
+
+`download` 会自动校验总包和逐文件 SHA-256，再解包到
+`output/morgana-v2/stage2-sft/<run-id>/`。填写其中的 `manual_review_results.json` 后执行：
 
 ```bash
 roleplay-stage2-sft review \
   --run-dir output/morgana-v2/stage2-sft/<run-id>
 ```
 
-每个 run 只接受一次非空人工复核提交。下载产物时在本机执行：
+最后只提交人工复核结果和摘要，不把 adapter 放进 Git 历史：
 
 ```bash
-scp -rP <SSH端口> \
-  root@<AutoDL地址>:/root/autodl-tmp/roleplay/output/morgana-v2/stage2-sft/<run-id> \
-  /Users/chenkx/roleplay/output/morgana-v2/stage2-sft/
+git add -f \
+  output/morgana-v2/stage2-sft/<run-id>/run_summary.json \
+  output/morgana-v2/stage2-sft/<run-id>/manual_review_results.json
+git commit -m "chore: record morgana-v2 SFT review"
+git push
 ```
+
+日常流程只有四个动作：`run → publish → download → review`。失败 run 只需按需提交
+`run_summary.json`，不上传诊断目录。

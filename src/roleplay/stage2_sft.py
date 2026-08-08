@@ -15,6 +15,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 from collections.abc import MutableMapping
 from datetime import datetime, timezone
@@ -40,6 +42,7 @@ DEFAULT_OUTPUT_RELATIVE_PATH = Path("output/morgana-v2/stage2-sft")
 MIN_GPU_MEMORY_GIB = 20.0
 DEFAULT_HF_ENDPOINT = "https://hf-mirror.com"
 DEFAULT_HF_HOME = "/root/autodl-tmp/huggingface"
+DEFAULT_GITHUB_REPOSITORY = "chenkx612/local-roleplay-llm"
 
 EXPECTED_TRAINING_PRECISION = {
     "torch_dtype": "float32",
@@ -102,7 +105,6 @@ EXPECTED_ARCHIVE_FILES = frozenset(
     {
         "run_summary.json",
         "training_config.yaml",
-        "train.log",
         *(f"adapter/{name}" for name in ADAPTER_FILES),
         "hf_base_dev_outputs.jsonl",
         "dev_outputs.jsonl",
@@ -111,6 +113,7 @@ EXPECTED_ARCHIVE_FILES = frozenset(
         "manual_review_results.json",
     }
 )
+LOCAL_ONLY_ARCHIVE_FILES = frozenset({"train.log"})
 
 
 class Stage2SFTError(RuntimeError):
@@ -591,6 +594,290 @@ def validate_archive_contract(run_dir: Path) -> None:
         )
 
 
+def prune_run_artifacts(run_dir: Path) -> list[str]:
+    """Remove known legacy files that should stay local, never in GitHub."""
+    run_dir = run_dir.resolve()
+    summary_path = run_dir / "run_summary.json"
+    if not summary_path.is_file():
+        raise Stage2SFTError(f"缺少 run_summary.json: {run_dir}")
+    actual = {
+        str(path.relative_to(run_dir))
+        for path in run_dir.rglob("*")
+        if path.is_file()
+    }
+    successful_archive = EXPECTED_ARCHIVE_FILES <= actual
+    allowed = (
+        EXPECTED_ARCHIVE_FILES | LOCAL_ONLY_ARCHIVE_FILES
+        if successful_archive
+        else {"run_summary.json"} | LOCAL_ONLY_ARCHIVE_FILES
+    )
+    unexpected = actual - allowed
+    if unexpected:
+        raise Stage2SFTError(
+            "发现未知文件，拒绝自动精简: " + ", ".join(sorted(unexpected))
+        )
+    if not successful_archive and actual - LOCAL_ONLY_ARCHIVE_FILES != {
+        "run_summary.json"
+    }:
+        raise Stage2SFTError("失败 run 目录不满足最小归档契约")
+
+    removed = sorted(actual & LOCAL_ONLY_ARCHIVE_FILES)
+    if not removed:
+        if successful_archive:
+            validate_archive_contract(run_dir)
+        return []
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    artifacts = summary.get("artifacts")
+    if isinstance(artifacts, dict):
+        for relative_name in removed:
+            artifacts.pop(relative_name, None)
+    summary["pruned_local_only_artifacts"] = removed
+    for relative_name in removed:
+        (run_dir / relative_name).unlink()
+    write_json_atomic(summary_path, summary)
+    if successful_archive:
+        validate_archive_contract(run_dir)
+    return removed
+
+
+def create_release_bundle(run_dir: Path, output_dir: Path) -> tuple[Path, Path]:
+    """Create one GitHub Release bundle without adding model files to Git."""
+    run_dir = run_dir.resolve()
+    output_dir = output_dir.resolve()
+    validate_archive_contract(run_dir)
+
+    summary_path = run_dir / "run_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    run_id = summary.get("run", {}).get("id")
+    if not isinstance(run_id, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
+    ):
+        raise Stage2SFTError("run_summary.json 缺少可用于发布包名称的 run.id")
+
+    try:
+        output_dir.relative_to(run_dir)
+    except ValueError:
+        pass
+    else:
+        raise Stage2SFTError("发布包目录不能位于 run 目录内")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"morgana-v2-stage2-sft-{run_id}"
+    bundle_path = output_dir / f"{stem}.tar.gz"
+    manifest_path = output_dir / f"{stem}.manifest.json"
+    existing = [path for path in (bundle_path, manifest_path) if path.exists()]
+    if existing:
+        raise Stage2SFTError(
+            "发布产物已存在，拒绝覆盖: " + ", ".join(map(str, existing))
+        )
+
+    temporary_bundle = output_dir / f".{bundle_path.name}.{uuid4().hex}.tmp"
+    try:
+        with tarfile.open(temporary_bundle, "w:gz") as archive:
+            for relative_name in sorted(EXPECTED_ARCHIVE_FILES):
+                archive.add(
+                    run_dir / relative_name,
+                    arcname=f"{run_id}/{relative_name}",
+                    recursive=False,
+                )
+        temporary_bundle.replace(bundle_path)
+        contents = dict(
+            _archive_metadata(run_dir / name, run_dir)
+            for name in sorted(EXPECTED_ARCHIVE_FILES)
+        )
+        manifest = {
+            "schema_version": 1,
+            "run_id": run_id,
+            "run_status": summary.get("status"),
+            "source_commit": summary.get("run", {}).get("commit"),
+            "github_release_tag": stem,
+            "bundle": {
+                "file": bundle_path.name,
+                "bytes": bundle_path.stat().st_size,
+                "sha256": sha256_file(bundle_path),
+            },
+            "contents": contents,
+        }
+        write_json_atomic(manifest_path, manifest)
+    except BaseException:
+        temporary_bundle.unlink(missing_ok=True)
+        bundle_path.unlink(missing_ok=True)
+        manifest_path.unlink(missing_ok=True)
+        raise
+    return bundle_path, manifest_path
+
+
+def _reuse_release_bundle(
+    run_dir: Path, output_dir: Path
+) -> tuple[Path, Path] | None:
+    """Return an existing bundle only when it still matches the run exactly."""
+    summary = json.loads(
+        (run_dir / "run_summary.json").read_text(encoding="utf-8")
+    )
+    run_id = summary.get("run", {}).get("id")
+    if not isinstance(run_id, str):
+        return None
+    stem = f"morgana-v2-stage2-sft-{run_id}"
+    bundle_path = output_dir / f"{stem}.tar.gz"
+    manifest_path = output_dir / f"{stem}.manifest.json"
+    if not bundle_path.exists() and not manifest_path.exists():
+        return None
+    if not bundle_path.is_file() or not manifest_path.is_file():
+        raise Stage2SFTError("发布包或清单不完整，拒绝复用")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected_contents = dict(
+        _archive_metadata(run_dir / name, run_dir)
+        for name in sorted(EXPECTED_ARCHIVE_FILES)
+    )
+    if (
+        manifest.get("run_id") != run_id
+        or manifest.get("contents") != expected_contents
+        or manifest.get("bundle", {}).get("sha256")
+        != sha256_file(bundle_path)
+    ):
+        raise Stage2SFTError("现有发布包与 run 目录不一致，拒绝复用")
+    return bundle_path, manifest_path
+
+
+def publish_run(
+    run_dir: Path,
+    output_dir: Path,
+    repository: str = DEFAULT_GITHUB_REPOSITORY,
+) -> tuple[Path, Path, str]:
+    """Prune, bundle, and upload one run before local manual review."""
+    run_dir = run_dir.resolve()
+    output_dir = output_dir.resolve()
+    prune_run_artifacts(run_dir)
+    existing = _reuse_release_bundle(run_dir, output_dir)
+    if existing is None:
+        bundle_path, manifest_path = create_release_bundle(run_dir, output_dir)
+    else:
+        bundle_path, manifest_path = existing
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    tag = manifest["github_release_tag"]
+    command = [
+        "gh",
+        "release",
+        "create",
+        tag,
+        str(bundle_path),
+        str(manifest_path),
+        "--repo",
+        repository,
+        "--title",
+        f"morgana-v2 Stage 2 SFT {manifest['run_id']}",
+        "--notes",
+        "Stage 2 SFT 精简归档；人工复核在下载到本地后完成。",
+        "--latest=false",
+    ]
+    source_commit = manifest.get("source_commit")
+    if isinstance(source_commit, str) and source_commit:
+        command.extend(["--target", source_commit])
+    try:
+        subprocess.run(command, check=True)
+    except FileNotFoundError as exc:
+        raise Stage2SFTError("未安装 GitHub CLI：gh") from exc
+    except subprocess.CalledProcessError as exc:
+        raise Stage2SFTError(
+            "GitHub Release 上传失败；本地发布包已保留，可修复后重试"
+        ) from exc
+    return bundle_path, manifest_path, tag
+
+
+def extract_release_bundle(
+    bundle_path: Path, manifest_path: Path, output_root: Path
+) -> Path:
+    """Verify and atomically extract one downloaded release bundle."""
+    bundle_path = bundle_path.resolve()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("bundle", {}).get("sha256") != sha256_file(bundle_path):
+        raise Stage2SFTError("下载包 SHA-256 与 manifest 不匹配")
+    run_id = manifest.get("run_id")
+    if not isinstance(run_id, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
+    ):
+        raise Stage2SFTError("manifest 缺少有效 run_id")
+    if set(manifest.get("contents", {})) != EXPECTED_ARCHIVE_FILES:
+        raise Stage2SFTError("manifest 文件清单不满足归档契约")
+    expected_names = {
+        f"{run_id}/{name}" for name in manifest.get("contents", {})
+    }
+    output_root = output_root.resolve()
+    destination = output_root / run_id
+    if destination.exists():
+        raise Stage2SFTError(f"本地 run 目录已存在，拒绝覆盖: {destination}")
+    output_root.mkdir(parents=True, exist_ok=True)
+    staging_root = output_root / f".download-{uuid4().hex}"
+    staging_root.mkdir()
+    try:
+        with tarfile.open(bundle_path, "r:gz") as archive:
+            members = archive.getmembers()
+            actual_names = {member.name for member in members}
+            if actual_names != expected_names or not all(
+                member.isfile() for member in members
+            ):
+                raise Stage2SFTError("发布包内容与 manifest 不一致")
+            for member in members:
+                target = (staging_root / member.name).resolve()
+                try:
+                    target.relative_to(staging_root)
+                except ValueError as exc:
+                    raise Stage2SFTError("发布包包含不安全路径") from exc
+                target.parent.mkdir(parents=True, exist_ok=True)
+                source = archive.extractfile(member)
+                if source is None:
+                    raise Stage2SFTError(f"无法读取发布包文件: {member.name}")
+                with source, target.open("xb") as output_file:
+                    shutil.copyfileobj(source, output_file)
+        staged_run = staging_root / run_id
+        for relative_name, metadata in manifest["contents"].items():
+            path = staged_run / relative_name
+            if (
+                not path.is_file()
+                or path.stat().st_size != metadata["bytes"]
+                or sha256_file(path) != metadata["sha256"]
+            ):
+                raise Stage2SFTError(f"解包文件校验失败: {relative_name}")
+        staged_run.replace(destination)
+    finally:
+        shutil.rmtree(staging_root, ignore_errors=True)
+    return destination
+
+
+def download_release(
+    tag: str,
+    output_root: Path,
+    repository: str = DEFAULT_GITHUB_REPOSITORY,
+) -> Path:
+    """Download, verify, and extract one GitHub Release locally."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", tag):
+        raise Stage2SFTError("release tag 格式无效")
+    with tempfile.TemporaryDirectory() as temporary:
+        download_dir = Path(temporary)
+        command = [
+            "gh",
+            "release",
+            "download",
+            tag,
+            "--repo",
+            repository,
+            "--dir",
+            str(download_dir),
+        ]
+        try:
+            subprocess.run(command, check=True)
+        except FileNotFoundError as exc:
+            raise Stage2SFTError("未安装 GitHub CLI：gh") from exc
+        except subprocess.CalledProcessError as exc:
+            raise Stage2SFTError(f"GitHub Release 下载失败: {tag}") from exc
+        bundle_path = download_dir / f"{tag}.tar.gz"
+        manifest_path = download_dir / f"{tag}.manifest.json"
+        if not bundle_path.is_file() or not manifest_path.is_file():
+            raise Stage2SFTError("Release 缺少发布包或 manifest")
+        return extract_release_bundle(bundle_path, manifest_path, output_root)
+
+
 def _records_from_responses(
     responses: Any, seed: int, dev_rows: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -803,7 +1090,6 @@ def run_stage2(output_root: Path | None = None) -> Path:
         train_duration_seconds = run_logged(
             train_command, train_log, repo_dir, train_environment
         )
-        shutil.copy2(train_log, run_dir / "train.log")
 
         effective_precision = validate_effective_training_args(train_dir)
         summary["training"] = {
@@ -1063,7 +1349,6 @@ def run_stage2(output_root: Path | None = None) -> Path:
 
         artifact_paths = [
             run_dir / "training_config.yaml",
-            run_dir / "train.log",
             *(adapter_archive / name for name in ADAPTER_FILES),
             *(run_dir / name for name in generated_paths),
         ]
@@ -1078,13 +1363,11 @@ def run_stage2(output_root: Path | None = None) -> Path:
         shutil.rmtree(work_root)
         print(f"Stage 2 核心产物已归档: {run_dir}")
         if summary["status"] == "stability_failed":
-            print("生成稳定性门槛失败，禁止进入 GRPO。")
+            print("生成稳定性门槛失败；可 publish 到本地检查，禁止进入 GRPO。")
         else:
-            print("请填写 manual_review_results.json 后运行 review 子命令。")
+            print("请运行 publish 上传；人工复核在本地下载后完成。")
         return run_dir
     except BaseException as exc:
-        if train_log.exists() and not (run_dir / "train.log").exists():
-            shutil.copy2(train_log, run_dir / "train.log")
         _record_failure(summary, summary_path, phase, exc, work_root)
         raise
 
@@ -1167,6 +1450,28 @@ def build_parser() -> argparse.ArgumentParser:
         "review", help="提交并验证人工复核结果"
     )
     review_parser.add_argument("--run-dir", type=Path, required=True)
+    publish_parser = subparsers.add_parser(
+        "publish", help="精简、打包并上传到 GitHub Release"
+    )
+    publish_parser.add_argument("--run-dir", type=Path, required=True)
+    publish_parser.add_argument(
+        "--output-dir", type=Path, default=Path("dist")
+    )
+    publish_parser.add_argument(
+        "--repo", default=DEFAULT_GITHUB_REPOSITORY
+    )
+    download_parser = subparsers.add_parser(
+        "download", help="从 GitHub Release 下载并校验解包"
+    )
+    download_parser.add_argument("--tag", required=True)
+    download_parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=DEFAULT_OUTPUT_RELATIVE_PATH,
+    )
+    download_parser.add_argument(
+        "--repo", default=DEFAULT_GITHUB_REPOSITORY
+    )
     return parser
 
 
@@ -1176,8 +1481,20 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "run":
             run_stage2(args.output_root)
-        else:
+        elif args.command == "review":
             review_run(args.run_dir)
+        elif args.command == "publish":
+            bundle_path, manifest_path, tag = publish_run(
+                args.run_dir, args.output_dir, args.repo
+            )
+            print(f"GitHub Release: {tag}")
+            print(f"发布包: {bundle_path}")
+            print(f"清单: {manifest_path}")
+            print("请在本地运行 download，再完成人工复核。")
+        elif args.command == "download":
+            run_dir = download_release(args.tag, args.output_root, args.repo)
+            print(f"本地 run 目录: {run_dir}")
+            print("请填写 manual_review_results.json 后运行 review。")
     except (Stage2SFTError, subprocess.CalledProcessError) as exc:
         print(f"错误: {exc}", file=sys.stderr)
         return 1

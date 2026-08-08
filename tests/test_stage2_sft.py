@@ -2,6 +2,8 @@
 
 import importlib.metadata
 import json
+import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,12 +15,18 @@ from roleplay.stage2_sft import (
     DEFAULT_HF_HOME,
     DISABLED_ACCELERATION_PACKAGES,
     EXPECTED_ARCHIVE_FILES,
+    LOCAL_ONLY_ARCHIVE_FILES,
     PINNED_PACKAGES,
     Stage2SFTError,
     _record_failure,
     configure_huggingface_environment,
+    create_release_bundle,
     create_exclusive_directory,
+    download_release,
     ensure_clean_tracked_status,
+    extract_release_bundle,
+    publish_run,
+    prune_run_artifacts,
     review_run,
     sha256_file,
     validate_archive_contract,
@@ -301,6 +309,21 @@ class TrainingPrecisionValidationTests(unittest.TestCase):
 
 
 class FileContractTests(unittest.TestCase):
+    @staticmethod
+    def make_complete_archive(run_dir: Path, run_id: str = "run-123"):
+        for name in EXPECTED_ARCHIVE_FILES:
+            path = run_dir / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("test", encoding="utf-8")
+        write_json_atomic(
+            run_dir / "run_summary.json",
+            {
+                "schema_version": 2,
+                "status": "awaiting_manual_review",
+                "run": {"id": run_id, "commit": "abc123"},
+            },
+        )
+
     def test_run_directory_is_exclusive(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "run"
@@ -329,14 +352,182 @@ class FileContractTests(unittest.TestCase):
     def test_archive_contract_rejects_missing_and_unexpected_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            for name in EXPECTED_ARCHIVE_FILES:
-                path = root / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("test", encoding="utf-8")
+            self.make_complete_archive(root)
             validate_archive_contract(root)
             (root / "unexpected.txt").write_text("x", encoding="utf-8")
             with self.assertRaisesRegex(Stage2SFTError, "unexpected"):
                 validate_archive_contract(root)
+
+    def test_release_bundle_contains_only_archive_contract_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dir = root / "run"
+            output_dir = root / "dist"
+            self.make_complete_archive(run_dir)
+
+            bundle_path, manifest_path = create_release_bundle(
+                run_dir, output_dir
+            )
+
+            with tarfile.open(bundle_path, "r:gz") as archive:
+                self.assertEqual(
+                    set(archive.getnames()),
+                    {f"run-123/{name}" for name in EXPECTED_ARCHIVE_FILES},
+                )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["run_id"], "run-123")
+            self.assertEqual(manifest["source_commit"], "abc123")
+            self.assertEqual(
+                set(manifest["contents"]), EXPECTED_ARCHIVE_FILES
+            )
+            self.assertEqual(
+                manifest["bundle"]["sha256"], sha256_file(bundle_path)
+            )
+            with self.assertRaisesRegex(Stage2SFTError, "拒绝覆盖"):
+                create_release_bundle(run_dir, output_dir)
+
+    def test_release_bundle_rejects_output_inside_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            self.make_complete_archive(run_dir)
+            with self.assertRaisesRegex(Stage2SFTError, "不能位于"):
+                create_release_bundle(run_dir, run_dir / "dist")
+
+    @patch("roleplay.stage2_sft.subprocess.run")
+    def test_publish_allows_review_to_remain_pending(self, run_command):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dir = root / "run"
+            self.make_complete_archive(run_dir)
+
+            bundle, manifest, tag = publish_run(run_dir, root / "dist")
+
+            self.assertTrue(bundle.is_file())
+            self.assertTrue(manifest.is_file())
+            self.assertEqual(tag, "morgana-v2-stage2-sft-run-123")
+            command = run_command.call_args.args[0]
+            self.assertEqual(command[:3], ["gh", "release", "create"])
+            self.assertIn("--target", command)
+            self.assertEqual(command[command.index("--target") + 1], "abc123")
+
+    @patch("roleplay.stage2_sft.subprocess.run")
+    def test_publish_retry_reuses_bundle_after_upload_failure(self, run_command):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dir = root / "run"
+            self.make_complete_archive(run_dir)
+            run_command.side_effect = subprocess.CalledProcessError(1, ["gh"])
+            with self.assertRaisesRegex(Stage2SFTError, "上传失败"):
+                publish_run(run_dir, root / "dist")
+            existing = sorted((root / "dist").iterdir())
+
+            run_command.side_effect = None
+            publish_run(run_dir, root / "dist")
+
+            self.assertEqual(sorted((root / "dist").iterdir()), existing)
+
+    def test_extract_release_bundle_verifies_and_restores_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dir = root / "source" / "run"
+            self.make_complete_archive(run_dir)
+            bundle, manifest = create_release_bundle(run_dir, root / "dist")
+
+            restored = extract_release_bundle(bundle, manifest, root / "output")
+
+            self.assertEqual(restored.name, "run-123")
+            validate_archive_contract(restored)
+            self.assertEqual(
+                (restored / "run_summary.json").read_text(encoding="utf-8"),
+                (run_dir / "run_summary.json").read_text(encoding="utf-8"),
+            )
+
+    def test_extract_release_bundle_rejects_tampered_bundle(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dir = root / "source" / "run"
+            self.make_complete_archive(run_dir)
+            bundle, manifest = create_release_bundle(run_dir, root / "dist")
+            with bundle.open("ab") as output_file:
+                output_file.write(b"tampered")
+            with self.assertRaisesRegex(Stage2SFTError, "SHA-256"):
+                extract_release_bundle(bundle, manifest, root / "output")
+
+    @patch("roleplay.stage2_sft.subprocess.run")
+    def test_download_fetches_release_assets_and_extracts(self, run_command):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dir = root / "source" / "run"
+            self.make_complete_archive(run_dir)
+            bundle, manifest = create_release_bundle(run_dir, root / "dist")
+
+            def copy_release_assets(command, check):
+                self.assertTrue(check)
+                download_dir = Path(command[command.index("--dir") + 1])
+                (download_dir / bundle.name).write_bytes(bundle.read_bytes())
+                (download_dir / manifest.name).write_bytes(
+                    manifest.read_bytes()
+                )
+
+            run_command.side_effect = copy_release_assets
+            restored = download_release(
+                "morgana-v2-stage2-sft-run-123", root / "output"
+            )
+
+            validate_archive_contract(restored)
+            self.assertEqual(run_command.call_args.args[0][:3], [
+                "gh",
+                "release",
+                "download",
+            ])
+
+    def test_prune_removes_only_known_legacy_success_artifact(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            self.make_complete_archive(run_dir)
+            train_log = run_dir / "train.log"
+            train_log.write_text("large diagnostics", encoding="utf-8")
+            summary = json.loads(
+                (run_dir / "run_summary.json").read_text(encoding="utf-8")
+            )
+            summary["artifacts"] = {"train.log": {"bytes": 17}}
+            write_json_atomic(run_dir / "run_summary.json", summary)
+
+            self.assertEqual(
+                prune_run_artifacts(run_dir), sorted(LOCAL_ONLY_ARCHIVE_FILES)
+            )
+            self.assertFalse(train_log.exists())
+            validate_archive_contract(run_dir)
+            updated = json.loads(
+                (run_dir / "run_summary.json").read_text(encoding="utf-8")
+            )
+            self.assertNotIn("train.log", updated["artifacts"])
+            self.assertEqual(
+                updated["pruned_local_only_artifacts"], ["train.log"]
+            )
+
+    def test_prune_rejects_unknown_file_without_deleting_log(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            self.make_complete_archive(run_dir)
+            train_log = run_dir / "train.log"
+            train_log.write_text("diagnostics", encoding="utf-8")
+            (run_dir / "unknown.bin").write_bytes(b"unknown")
+            with self.assertRaisesRegex(Stage2SFTError, "未知文件"):
+                prune_run_artifacts(run_dir)
+            self.assertTrue(train_log.exists())
+
+    def test_prune_reduces_failed_run_to_summary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            write_json_atomic(
+                run_dir / "run_summary.json", {"status": "training_failed"}
+            )
+            (run_dir / "train.log").write_text("diagnostics", encoding="utf-8")
+            self.assertEqual(prune_run_artifacts(run_dir), ["train.log"])
+            self.assertEqual(
+                {path.name for path in run_dir.iterdir()}, {"run_summary.json"}
+            )
 
     def test_failure_summary_is_preserved_atomically(self):
         with tempfile.TemporaryDirectory() as temporary:
