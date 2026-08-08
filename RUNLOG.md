@@ -1,5 +1,17 @@
 # morgana-v2 运行日志
 
+## 2026-08-08：第二次 SFT 迁移到 AutoDL
+
+- Colab 免费额度耗尽且本轮不购买 Colab Pro，第二次 SFT 改在 AutoDL 单张 RTX 3090 24GB
+  上执行；不修改数据、训练配置、模型 revision、seed、推理参数或验收门槛。
+- 已选实例：NVIDIA GeForce RTX 3090，24576MiB，驱动 570.124.04；基础镜像为
+  PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8。
+- 正式训练使用独立虚拟环境，固定 PyTorch 2.10.0+cu128 和 Colab 已验证的直接依赖版本。
+- 新增 `roleplay-stage2-sft run` 和 `review` 命令；产物保存到
+  `output/morgana-v2/stage2-sft/<run-id>/`，不再依赖 Google Drive 或 `/content`。
+- 配置文件名 `morgana_v2_sft_t4.yaml` 暂时保留以维持实验连续性；其中没有需要随硬件改变的
+  参数。训练尚未开始，实际 commit、环境、时长、日志和结果由 run summary 记录。
+
 ## 2026-08-08：阶段 1 基线范围简化
 
 - 为符合本项目“简单快速”的学习目标，取消三 seed、30 条和专用 Transformers 后端的要求。

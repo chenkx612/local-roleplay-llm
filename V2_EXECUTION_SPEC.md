@@ -12,7 +12,9 @@
 - 数据目录：`data/runs/morgana-v2/`。
 - 模型目录：`output/morgana-v2/`。
 - 训练与正式评测基座：`Qwen/Qwen3.5-2B`，固定并记录实际 revision。
-- QLoRA：ms-swift + bitsandbytes 4-bit，Colab Tesla T4。
+- QLoRA：ms-swift + bitsandbytes 4-bit，AutoDL 单张 RTX 3090 24GB。实例基础镜像为
+  PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8；独立虚拟环境固定使用
+  PyTorch 2.10.0+cu128。
 - Teacher/Judge：`deepseek-v4-flash`，开启 thinking，并记录实际模型和请求配置。
 - Student、SFT、GRPO 生成关闭 thinking。
 - Base、SFT、GRPO 比较固定使用同一模型 revision、聊天模板和生成参数；学习项目允许使用
@@ -101,8 +103,9 @@ enable_thinking: false
 
 该配置用于第二次 SFT。第一次 SFT 的配置和结果已原样归档；第二次把有效 batch size 从 16
 降到 4，使 50 条数据、3 epochs 下的预期 optimizer step 从 12 增加到 39。物理 batch size
-设为 2、梯度累积设为 2，以利用 T4 的剩余显存；数据、学习率、epoch、LoRA 和推理参数保持
-不变。训练前还必须确认 50 条 assistant 标签全部包含“吾辈”，且不包含“本大爷”或“本喵”。
+设为 2、梯度累积设为 2。运行环境从 Colab T4 迁移到 AutoDL 3090 后仍冻结这一配置，不利用
+新增显存调整 batch；数据、学习率、epoch、LoRA 和推理参数保持不变。训练前还必须确认 50 条
+assistant 标签全部包含“吾辈”，且不包含“本大爷”或“本喵”。
 
 只对 assistant 回复计算 loss，不使用 Dev 搜索 epoch、学习率或 LoRA 参数。技术失败可以修复明确
 的实现问题后重跑；行为失败不得在同一轮静默调参。
