@@ -127,6 +127,8 @@ def configure_huggingface_environment(
     target = os.environ if environment is None else environment
     target.setdefault("HF_ENDPOINT", DEFAULT_HF_ENDPOINT)
     target.setdefault("HF_HOME", DEFAULT_HF_HOME)
+    target.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    target.setdefault("TQDM_DISABLE", "1")
     return {
         "endpoint": target["HF_ENDPOINT"],
         "cache_home": target["HF_HOME"],
@@ -478,12 +480,41 @@ def validate_effective_training_args(output_dir: Path) -> dict[str, Any]:
     return effective
 
 
+def training_progress(line: str) -> dict[str, str] | None:
+    """Extract the few training metrics useful for a concise status update."""
+    fields: dict[str, str] = {}
+    for name in (
+        "loss",
+        "grad_norm",
+        "global_step/max_steps",
+        "remaining_time",
+    ):
+        pattern = rf"['\"]{re.escape(name)}['\"]:\s*['\"]([^'\"]+)"
+        match = re.search(pattern, line)
+        if match:
+            fields[name] = match.group(1)
+    if set(fields) != {
+        "loss",
+        "grad_norm",
+        "global_step/max_steps",
+        "remaining_time",
+    }:
+        return None
+    return fields
+
+
 def run_logged(
-    command: list[str], log_path: Path, repo_dir: Path, environment: dict[str, str]
+    command: list[str],
+    log_path: Path,
+    repo_dir: Path,
+    environment: dict[str, str],
+    expected_steps: int,
 ) -> float:
-    """Run a command while streaming and preserving its combined output."""
+    """Run a command, preserve all output, and print concise progress."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
+    progress_interval = max(1, math.ceil(expected_steps / 5))
+    last_reported_step = 0
     with log_path.open("w", encoding="utf-8") as log_file:
         log_file.write("COMMAND: " + subprocess.list2cmdline(command) + "\n")
         log_file.flush()
@@ -499,11 +530,30 @@ def run_logged(
         if process.stdout is None:
             raise Stage2SFTError("训练子进程没有 stdout")
         for line in process.stdout:
-            print(line, end="")
             log_file.write(line)
+            progress = training_progress(line)
+            if progress is None:
+                continue
+            step_text = progress["global_step/max_steps"]
+            step, total = (int(value) for value in step_text.split("/", 1))
+            should_report = (
+                step == 1
+                or step == total
+                or step - last_reported_step >= progress_interval
+            )
+            if should_report:
+                print(
+                    "  训练进度 "
+                    f"{step}/{total} | loss {progress['loss']} | "
+                    f"grad {progress['grad_norm']} | "
+                    f"预计剩余 {progress['remaining_time']}"
+                )
+                last_reported_step = step
         return_code = process.wait()
     if return_code != 0:
-        raise subprocess.CalledProcessError(return_code, command)
+        raise Stage2SFTError(
+            f"训练子进程退出码 {return_code}；完整日志: {log_path}"
+        )
     return time.monotonic() - started
 
 
@@ -933,6 +983,7 @@ def _record_failure(
 
 def run_stage2(output_root: Path | None = None) -> Path:
     """Execute the complete frozen Stage 2 SFT run and return its archive."""
+    print("[1/5] 检查运行环境...")
     huggingface_environment = configure_huggingface_environment()
     repo_dir = repository_root()
     output_root = (
@@ -944,6 +995,11 @@ def run_stage2(output_root: Path | None = None) -> Path:
     environment_snapshot, torch = capture_environment()
     installed_versions = validate_pinned_packages()
     git = git_context(repo_dir)
+    print(
+        "[1/5] 环境正常 | "
+        f"GPU {environment_snapshot['gpu_name']} | "
+        f"显存 {environment_snapshot['gpu_memory_gib']:.1f} GiB"
+    )
 
     run_id = (
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -971,6 +1027,7 @@ def run_stage2(output_root: Path | None = None) -> Path:
     }
     write_json_atomic(summary_path, summary)
     print(f"Run 目录: {run_dir}")
+    print("[2/5] 校验冻结输入与训练配置...")
 
     phase = "input_validation_failed"
     train_log = work_root / "train.log"
@@ -1069,6 +1126,11 @@ def run_stage2(output_root: Path | None = None) -> Path:
         }
         summary["status"] = "inputs_validated"
         write_json_atomic(summary_path, summary)
+        print(
+            "[2/5] 输入正常 | "
+            f"训练 {len(sft_rows)} 条 | Dev {len(dev_rows)} 条 | "
+            f"计划 {planned_optimizer_steps} 步"
+        )
 
         phase = "training_failed"
         train_dir = work_root / "full"
@@ -1087,8 +1149,13 @@ def run_stage2(output_root: Path | None = None) -> Path:
             "--add_version",
             "false",
         ]
+        print(f"[3/5] 开始训练 | 详细日志: {train_log}")
         train_duration_seconds = run_logged(
-            train_command, train_log, repo_dir, train_environment
+            train_command,
+            train_log,
+            repo_dir,
+            train_environment,
+            planned_optimizer_steps,
         )
 
         effective_precision = validate_effective_training_args(train_dir)
@@ -1101,6 +1168,7 @@ def run_stage2(output_root: Path | None = None) -> Path:
         }
         summary["status"] = "training_completed"
         write_json_atomic(summary_path, summary)
+        print(f"[3/5] 训练完成 | 用时 {train_duration_seconds / 60:.1f} 分钟")
 
         full_adapter = find_final_adapter(train_dir)
         full_losses = read_metric(train_dir, "loss")
@@ -1134,6 +1202,7 @@ def run_stage2(output_root: Path | None = None) -> Path:
         write_json_atomic(summary_path, summary)
 
         phase = "inference_or_evaluation_failed"
+        print("[4/5] 加载 Adapter，运行 Base/SFT Dev 对照评估...")
         system_prompt = (
             repo_dir / "data/runs/morgana-v2/system_prompt.txt"
         ).read_text(encoding="utf-8")
@@ -1334,8 +1403,14 @@ def run_stage2(output_root: Path | None = None) -> Path:
             else "stability_failed"
         )
         write_json_atomic(summary_path, summary)
+        print(
+            "[4/5] 自动评估完成 | "
+            f"技术门槛通过 | 稳定性门槛"
+            f"{'通过' if core_behavior_gate['passed'] else '未通过'}"
+        )
 
         phase = "archive_failed"
+        print("[5/5] 归档核心产物...")
         shutil.copy2(effective_config_path, run_dir / "training_config.yaml")
         for name, source in generated_paths.items():
             shutil.copy2(source, run_dir / name)

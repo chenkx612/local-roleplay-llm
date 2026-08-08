@@ -85,6 +85,9 @@ watch -n 2 nvidia-smi
 output/morgana-v2/stage2-sft/<run-id>/
 ```
 
+终端只显示环境、输入、训练、自动评估和归档状态；训练期间约输出 5 次包含 step、loss、梯度和
+预计剩余时间的进度。第三方库的完整原始输出仍写入临时工作目录中的 `train.log`，失败时可据此诊断。
+
 成功时只保留 adapter、训练配置、Base/SFT Dev 输出、人工复核文件和 run summary。完整训练日志和
 checkpoint 只存在于临时工作目录；成功归档后自动删除，训练曲线和梯度摘要已经写入
 `run_summary.json`。失败时 run 目录只保留 `run_summary.json`，完整日志和 checkpoint 留在

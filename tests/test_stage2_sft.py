@@ -29,6 +29,7 @@ from roleplay.stage2_sft import (
     prune_run_artifacts,
     review_run,
     sha256_file,
+    training_progress,
     validate_archive_contract,
     validate_effective_training_args,
     validate_environment_snapshot,
@@ -130,6 +131,8 @@ class EnvironmentValidationTests(unittest.TestCase):
 
         self.assertEqual(environment["HF_ENDPOINT"], DEFAULT_HF_ENDPOINT)
         self.assertEqual(environment["HF_HOME"], DEFAULT_HF_HOME)
+        self.assertEqual(environment["HF_HUB_DISABLE_PROGRESS_BARS"], "1")
+        self.assertEqual(environment["TQDM_DISABLE"], "1")
         self.assertEqual(
             configured,
             {
@@ -306,6 +309,28 @@ class TrainingPrecisionValidationTests(unittest.TestCase):
                 Stage2SFTError, "ms-swift 实际训练精度不正确"
             ):
                 validate_effective_training_args(output_dir)
+
+
+class TrainingProgressTests(unittest.TestCase):
+    def test_extracts_concise_swift_training_metrics(self):
+        line = (
+            "{'loss': '2.174', 'grad_norm': '1.605', "
+            "'global_step/max_steps': '10/39', "
+            "'remaining_time': '1m 56s'}"
+        )
+
+        self.assertEqual(
+            training_progress(line),
+            {
+                "loss": "2.174",
+                "grad_norm": "1.605",
+                "global_step/max_steps": "10/39",
+                "remaining_time": "1m 56s",
+            },
+        )
+
+    def test_ignores_unhelpful_training_output(self):
+        self.assertIsNone(training_progress("[INFO:swift] args: SftArguments("))
 
 
 class FileContractTests(unittest.TestCase):
