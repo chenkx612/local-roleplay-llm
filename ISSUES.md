@@ -1,6 +1,6 @@
 # v2 Issues
 
-## P0｜第二次 SFT 隐式启用 FP16，梯度溢出（已修复代码，待全新运行验证）
+## P0｜第二次 SFT 隐式启用 FP16，梯度溢出（已解决）
 
 **位置：** `output/morgana-v2/stage2-sft/2/run_summary.json`、
 `output/morgana-v2/stage2-sft/2/train.log`、`configs/morgana_v2_sft_t4.yaml`
@@ -11,23 +11,28 @@
 **原因：** 配置中的 model、BNB compute 和 LoRA dtype 虽为 FP32，但 ms-swift 解析出的实际
 参数仍为 `fp16=true`、`bf16=false`，因此训练开头发生 FP16 梯度溢出。
 
-**修复与验收：** 显式设置 `fp16=false`、`bf16=false`；训练前冻结校验纯 FP32 和 39 steps，
-训练后再从 `args.json` 校验实际精度并写入 summary。失败 checkpoint 不续训。新 run 必须满足
-39 个梯度全部有限且为正、186/186 个 LoRA-B 张量非零且有限、adapter 可重新加载并完成 Dev
-推理，才能把本项标记为完全解决。
+**修复与验收：** 显式设置 `fp16=false`、`bf16=false`；训练前冻结校验纯 FP32 和预期 steps，
+训练后再从 `args.json` 校验实际精度并写入 summary，失败 checkpoint 不续训。第三次和第四次
+全新运行分别完成 39/39、48/48 steps，梯度全部有限，186/186 个 LoRA-B 张量非零且有限，
+adapter 均可重新加载并完成 Dev 推理。本项已由
+`output/morgana-v2/stage2-sft/3/run_summary.json` 和
+`output/morgana-v2/stage2-sft/4/run_summary.json` 完整验证。
 
-## P1｜首轮 SFT 稳定性失败且核心自称未迁移（第二轮待验证）
+## P1｜SFT 核心角色信号仍未稳定迁移（阶段 2 放行，转 GRPO 观察）
 
-**位置：** `output/morgana-v2/stage2-sft/1/run_summary.json`、
-`output/morgana-v2/stage2-sft/1/dev_outputs.jsonl`
+**位置：** `output/morgana-v2/stage2-sft/4/run_summary.json`、
+`output/morgana-v2/stage2-sft/4/dev_outputs.jsonl`、
+`output/morgana-v2/stage2-sft/4/manual_review_results.json`
 
-**现象：** 首轮训练技术有效，但 `dev_0001` 达到 512 token 上限并截断，导致稳定性门槛失败；
-10 条 SFT Dev 均未使用训练标签中全量出现的“吾辈”，另有 3 条仍使用“本大爷”或“本喵”。
+**现象：** 第四次 SFT 已通过技术、生成稳定性和人工门槛：10/10 正常结束、0 截断、0 乱码，
+退化输出由同后端 Base 的 9/10 降至 1/10；人工复核 10 胜、0 次明显落后。但 62/62 训练标签
+使用“吾辈”，10 条 Dev 仍全部未使用，`dev_0003` 还使用“本大爷”。`dev_0005` 的普通宠物
+边界和 `dev_0009` 的人物编造也表明角色一致性只达到最低可用，人工均分为 5.2/10。
 
-**第二轮策略：** 保持冻结数据、3 epochs、`5e-5` 学习率、LoRA 和推理参数不变，将有效
-batch size 从 16 降到 4，把预期 optimizer step 从 12 提高到 39；具体使用物理 batch 2、
-梯度累积 2，提高 T4 显存利用率。
-第二轮仍须先通过稳定性门槛，再进行匿名人工复核；运行前不修改 Dev 或验收阈值。
+**阶段决策：** 按学习项目的最小闭环目标，不再进行第五次 SFT。第四次 adapter 已冻结为阶段 3
+起点，`run_summary.json` 状态为 `ready_for_grpo`。GRPO 奖励重点观察标志性自称、身份边界、
+禁止无依据人物/经历和回答相关性，并保护当前无截断、无乱码、无复读的稳定性。最终 Eval 必须
+如实报告该问题是否改善，不能只依据训练奖励宣布解决。
 
 ## P3｜Teacher-corrected SFT 仍有局部瑕疵（不阻断）
 
