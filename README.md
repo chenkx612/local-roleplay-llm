@@ -30,6 +30,7 @@ roleplay-inference --help
 roleplay-sft-data --help
 roleplay-stage2-sft --help
 roleplay-dpo-data --help
+roleplay-stage3-dpo --help
 ```
 
 连接本地 OpenAI 兼容服务后，可进行单轮或交互式对话：
@@ -63,7 +64,7 @@ docs/           计划、执行指南、日志与复盘
 
 - [训练计划](docs/PLAN.md)
 - [v2 执行规约](docs/V2_EXECUTION_SPEC.md)
-- [AutoDL SFT 指南](docs/AUTODL.md)
+- [AutoDL 训练指南](docs/AUTODL.md)
 - [DPO 计划](docs/STAGE3_DPO_PLAN.md)
 - [旧版 GRPO 计划（历史失败）](docs/STAGE3_GRPO_PLAN.md)
 - [运行记录](docs/RUNLOG.md)

@@ -172,8 +172,13 @@ enable_thinking: false
 - 训练文件使用 ms-swift 标准 `messages + rejected_response` 格式。
 
 DPO 训练只运行一组主配置，从 SFT policy 建立训练 policy，并以同一冻结 SFT 状态作为 reference。
-训练配置在数据人工复核通过后单独冻结。训练后必须完成技术有效性检查，以及与 SFT 对齐的
-Dev 生成稳定性和匿名主观质量比较；通过后才进入规则型 GRPO。
+冻结配置为 FP32 QLoRA、`beta=0.1`、sigmoid loss、`learning_rate=1e-6`、3 epochs、物理
+batch size 1、梯度累积 4，共 15 个 optimizer steps。训练后验证实际 FP32 参数、有限且为正的
+loss/grad norm、完整 step 数、adapter 非零更新和可重新加载生成。
+
+随后在相同推理条件下与 SFT 对齐生成 10 条 Dev。自动稳定性门槛沿用阶段二；匿名人工复核要求
+DPO 至少胜 6 对、明显落后不超过 2 对、无严重问题，并且生成稳定性、角色一致性和对话质量三项
+均分不低于 SFT。全部通过后状态为 `ready_for_grpo`，否则记录为 `dpo_failed`。
 
 ## 5. 规则型 GRPO
 

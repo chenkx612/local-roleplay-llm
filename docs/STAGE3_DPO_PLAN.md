@@ -56,3 +56,24 @@ DPO 训练；本轮数据准备不替代人工复核。
 当前 run `20260809-dpo-data-1` 已完成人工盲审并冻结 17 对，其中 Teacher 修改参与 1 对；
 3 个 tie/实质权衡项仅保留审计记录。正式训练集为 `data/runs/morgana-v2/dpo_train.jsonl`，
 SHA-256 为 `f1db4c30506fa704ac2366ec945a9f0b1302910bf41b667921a2d7f1ce9ae4f9`。
+
+## 5. AutoDL 训练与复核
+
+使用 `roleplay-stage3-dpo` 的四个子命令执行：
+
+```bash
+roleplay-stage3-dpo run
+roleplay-stage3-dpo publish --run-dir output/morgana-v2/stage3-dpo/<run-id>
+roleplay-stage3-dpo download --tag <Release-tag>
+roleplay-stage3-dpo review --run-dir output/morgana-v2/stage3-dpo/<run-id>
+```
+
+唯一冻结配置为 FP32 QLoRA DPO：SFT adapter 同时作为 policy 起点和 reference，
+`beta=0.1`、`loss_type=sigmoid`、`learning_rate=1e-6`、3 epochs、物理 batch size 1、
+梯度累积 4，共 15 个 optimizer steps。DPO 沿用阶段二依赖，不安装可选注意力内核，也不调用
+外部 Judge API。
+
+训练结束后使用相同推理链路、聊天模板、生成参数和固定 seed 生成 SFT/DPO Dev 对照。DPO 必须
+通过自动稳定性门槛；匿名人工复核要求至少胜 6/10、明显落后不超过 2/10、无严重问题，且生成
+稳定性、角色一致性和对话质量三项均分不低于 SFT。全部通过时状态为 `ready_for_grpo`，否则为
+`dpo_failed`。

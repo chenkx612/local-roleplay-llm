@@ -1,6 +1,6 @@
-# AutoDL：SFT 与 GRPO
+# AutoDL：SFT、DPO 与 GRPO
 
-在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的阶段二 SFT 和阶段三 GRPO。
+在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的阶段二 SFT、阶段三 DPO 和历史 GRPO。
 
 ## 1. 准备
 
@@ -77,9 +77,76 @@ git push
 失败现场保存在 `output/morgana-v2/stage2-sft/.work/<run-id>/`，错误摘要保存在对应 run 的
 `run_summary.json`。成功后临时文件自动删除。Adapter 不提交到 Git。
 
-## 3. GRPO
+## 3. DPO
 
 ### 3.1 准备 SFT adapter
+
+将已通过阶段二验收的 adapter 放到固定路径：
+
+```text
+output/morgana-v2/stage2-sft/final/adapter/
+```
+
+### 3.2 运行训练
+
+DPO 与 SFT 使用同一套冻结依赖，不安装 `flash-linear-attention` 或 `causal-conv1d`，也不需要
+`DEEPSEEK_API_KEY`：
+
+```bash
+cd /root/autodl-tmp/roleplay
+python -m pip uninstall -y flash-linear-attention causal-conv1d
+python -m pip install \
+  -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+  -r requirements/stage3_dpo_autodl.txt
+python -m pip install -e .
+
+tmux new -s roleplay-dpo
+roleplay-stage3-dpo run
+```
+
+`run` 会校验冻结的 17 对偏好数据、SFT adapter、AutoDL 环境和 DPO 配置，完成 15 个
+optimizer steps，并生成 SFT/DPO Dev 匿名对比材料。
+
+### 3.3 发布训练产物
+
+```bash
+gh auth login  # 仅首次需要
+roleplay-stage3-dpo publish \
+  --run-dir output/morgana-v2/stage3-dpo/<run-id>
+```
+
+记下输出的 Release tag。
+
+### 3.4 本地复核
+
+```bash
+cd /Users/chenkx/roleplay
+git pull --ff-only
+python -m pip install -e .
+roleplay-stage3-dpo download --tag <Release-tag>
+```
+
+根据 `manual_review_packet.json` 填写 `manual_review_results.json`，然后执行：
+
+```bash
+roleplay-stage3-dpo review \
+  --run-dir output/morgana-v2/stage3-dpo/<run-id>
+
+git add -f \
+  output/morgana-v2/stage3-dpo/<run-id>/run_summary.json \
+  output/morgana-v2/stage3-dpo/<run-id>/manual_review_results.json
+git commit -m "chore: record morgana-v2 DPO review"
+git push
+```
+
+### 3.5 失败处理
+
+失败现场保存在 `output/morgana-v2/stage3-dpo/.work/<run-id>/`，错误摘要保存在对应 run 的
+`run_summary.json`。成功后临时文件自动删除。Adapter 不提交到 Git。
+
+## 4. GRPO（历史流程）
+
+### 4.1 准备 SFT adapter
 
 将 Stage 2 adapter 放到固定路径：
 
@@ -87,7 +154,7 @@ git push
 output/morgana-v2/stage2-sft/final/adapter/
 ```
 
-### 3.2 运行训练
+### 4.2 运行训练
 
 ```bash
 cd /root/autodl-tmp/roleplay
@@ -108,7 +175,7 @@ Qwen3.5 的 GRPO 前向会使用变长线性注意力内核，因此阶段三额
 
 `run` 会完成训练检查，并生成 SFT/GRPO Dev 匿名对比材料。
 
-### 3.3 发布训练产物
+### 4.3 发布训练产物
 
 训练成功后发布：
 
@@ -119,7 +186,7 @@ roleplay-stage3-grpo publish --run-dir output/morgana-v2/stage3-grpo/<run-id>
 
 记下输出的 Release tag。
 
-### 3.4 本地复核
+### 4.4 本地复核
 
 ```bash
 cd /Users/chenkx/roleplay
