@@ -240,6 +240,17 @@ class PackageValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(Stage2SFTError, "pip uninstall"):
             validate_pinned_packages()
 
+    @patch("roleplay.stage2_sft.importlib.metadata.version")
+    def test_accepts_stage_specific_dependency_contract(self, version):
+        required = {**PINNED_PACKAGES, "flash-linear-attention": "0.4.2"}
+        version.side_effect = self.package_versions(
+            overrides={"flash-linear-attention": "0.4.2"}
+        )
+
+        installed = validate_pinned_packages(required, ("causal-conv1d",))
+
+        self.assertEqual(installed, required)
+
     def test_autodl_requirements_reuse_base_torch_and_disable_kernels(self):
         requirements = (
             Path(__file__).resolve().parents[1]

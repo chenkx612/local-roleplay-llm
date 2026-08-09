@@ -91,12 +91,20 @@ output/morgana-v2/stage2-sft/final/adapter/
 
 ```bash
 cd /root/autodl-tmp/roleplay
+python -m pip install \
+  -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+  -r requirements/stage3_grpo_autodl.txt
 python -m pip install -e .
 export DEEPSEEK_API_KEY="<your-key>"
 
 tmux new -s roleplay-grpo
 roleplay-stage3-grpo run
 ```
+
+Qwen3.5 的 GRPO 前向会使用变长线性注意力内核，因此阶段三额外固定安装
+`flash-linear-attention==0.4.2`。该 PyPI wheel 使用 PyTorch/Triton，不要求安装
+`causal-conv1d`；阶段三也显式安装 ms-swift 运行时使用但未声明的
+`msgspec==0.21.1`。阶段二仍保持不安装两个可选加速包的原始冻结环境。
 
 `run` 会完成训练检查，并生成 SFT/GRPO Dev 匿名对比材料。
 

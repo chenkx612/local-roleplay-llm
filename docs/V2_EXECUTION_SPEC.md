@@ -14,8 +14,8 @@
 - 训练与正式评测基座：`Qwen/Qwen3.5-2B`，固定并记录实际 revision。
 - QLoRA：ms-swift + bitsandbytes 4-bit，AutoDL 单张 RTX 3090 24GB。实例基础镜像为
   PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8，并直接作为正式训练环境。
-  不安装 flash-linear-attention 和 causal-conv1d，Qwen3.5 使用 Transformers 的 PyTorch
-  fallback。
+  SFT 阶段不安装 flash-linear-attention 和 causal-conv1d，Qwen3.5 使用 Transformers 的
+  PyTorch fallback；GRPO 的变长线性注意力路径额外固定使用 flash-linear-attention 0.4.2。
 - Teacher/Judge：`deepseek-v4-flash`，开启 thinking，并记录实际模型和请求配置。
 - Student、SFT、GRPO 生成关闭 thinking。
 - Base、SFT、GRPO 比较固定使用同一模型 revision、聊天模板和生成参数；学习项目允许使用

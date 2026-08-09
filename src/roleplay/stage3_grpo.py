@@ -24,6 +24,7 @@ from uuid import uuid4
 from roleplay.stage2_sft import (
     ADAPTER_FILES,
     DEFAULT_GITHUB_REPOSITORY,
+    PINNED_PACKAGES,
     Stage2SFTError,
     capture_environment,
     configure_huggingface_environment,
@@ -60,6 +61,13 @@ SFT_ADAPTER_RELATIVE_PATH = Path(
     "output/morgana-v2/stage2-sft/final/adapter"
 )
 DEFAULT_OUTPUT_RELATIVE_PATH = Path("output/morgana-v2/stage3-grpo")
+
+STAGE3_PINNED_PACKAGES = {
+    **PINNED_PACKAGES,
+    "flash-linear-attention": "0.4.2",
+    "msgspec": "0.21.1",
+}
+STAGE3_DISABLED_ACCELERATION_PACKAGES = ("causal-conv1d",)
 
 PROMPTS_SHA256 = "b36b4f01f232901ab0b5f6011fa64b66f48e02c75b6b0050035e4caf703e7231"
 DEV_SHA256 = "74cf6d05921155cec5c070ca8a611c7a8e6751b00ca0b77a6f4e9085aeeecb22"
@@ -556,7 +564,10 @@ def run_stage3(output_root: Path | None = None) -> Path:
             raise Stage3GRPOError("缺少 DEEPSEEK_API_KEY")
         huggingface = configure_huggingface_environment()
         environment, torch_module = capture_environment()
-        packages = validate_pinned_packages()
+        packages = validate_pinned_packages(
+            STAGE3_PINNED_PACKAGES,
+            STAGE3_DISABLED_ACCELERATION_PACKAGES,
+        )
         git = git_context(repo_dir)
         summary["run"].update(git)
         summary["environment"] = environment

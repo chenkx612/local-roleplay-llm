@@ -1,0 +1,3 @@
+-r stage2_sft_autodl.txt
+flash-linear-attention==0.4.2
+msgspec==0.21.1

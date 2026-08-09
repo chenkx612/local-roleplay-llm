@@ -19,7 +19,7 @@ import sys
 import tarfile
 import tempfile
 import time
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -279,16 +279,25 @@ def _format_environment_status(snapshot: dict[str, Any]) -> str:
     )
 
 
-def validate_pinned_packages() -> dict[str, str]:
-    """Require the direct training dependencies to match the frozen versions."""
+def validate_pinned_packages(
+    required_packages: Mapping[str, str] | None = None,
+    disabled_packages: Sequence[str] | None = None,
+) -> dict[str, str]:
+    """Require one stage's dependencies to match its frozen versions."""
+    required = PINNED_PACKAGES if required_packages is None else required_packages
+    disabled_names = (
+        DISABLED_ACCELERATION_PACKAGES
+        if disabled_packages is None
+        else disabled_packages
+    )
     disabled = {}
-    for name in DISABLED_ACCELERATION_PACKAGES:
+    for name in disabled_names:
         try:
             disabled[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             pass
     if disabled:
-        packages = " ".join(DISABLED_ACCELERATION_PACKAGES)
+        packages = " ".join(disabled_names)
         raise Stage2SFTError(
             f"检测到禁用的可选加速依赖: {disabled}；"
             f"请运行 python -m pip uninstall -y {packages}"
@@ -296,7 +305,7 @@ def validate_pinned_packages() -> dict[str, str]:
 
     installed: dict[str, str] = {}
     missing: list[str] = []
-    for name in PINNED_PACKAGES:
+    for name in required:
         try:
             installed[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
@@ -306,7 +315,7 @@ def validate_pinned_packages() -> dict[str, str]:
     mismatches = {
         name: version
         for name, version in installed.items()
-        if normalized_package_version(version) != PINNED_PACKAGES[name]
+        if normalized_package_version(version) != required[name]
     }
     if mismatches:
         raise Stage2SFTError(f"固定依赖版本不匹配: {mismatches}")

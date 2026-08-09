@@ -14,6 +14,8 @@ from roleplay.stage2_sft import write_json_atomic
 from roleplay.stage3_grpo import (
     ADAPTER_FILES,
     EXPECTED_ARCHIVE_FILES,
+    STAGE3_DISABLED_ACCELERATION_PACKAGES,
+    STAGE3_PINNED_PACKAGES,
     Stage3GRPOError,
     _load_yaml,
     create_release_bundle,
@@ -104,6 +106,24 @@ class FrozenInputTests(unittest.TestCase):
 
         with self.assertRaisesRegex(Stage3GRPOError, "padding_free"):
             validate_training_config(config)
+
+    def test_stage3_requires_fla_but_not_causal_conv1d(self):
+        requirements = (
+            Path(__file__).resolve().parents[1]
+            / "requirements"
+            / "stage3_grpo_autodl.txt"
+        ).read_text(encoding="utf-8")
+
+        self.assertEqual(
+            STAGE3_PINNED_PACKAGES["flash-linear-attention"], "0.4.2"
+        )
+        self.assertEqual(STAGE3_PINNED_PACKAGES["msgspec"], "0.21.1")
+        self.assertEqual(
+            STAGE3_DISABLED_ACCELERATION_PACKAGES, ("causal-conv1d",)
+        )
+        self.assertIn("flash-linear-attention==0.4.2", requirements)
+        self.assertIn("msgspec==0.21.1", requirements)
+        self.assertNotIn("causal-conv1d", requirements)
 
 
 class RewardValidationTests(unittest.TestCase):
