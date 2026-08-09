@@ -9,12 +9,16 @@ description = "Role-play training and inference utilities"
 requires-python = ">=3.10"
 dependencies = ["openai>=1.0"]
 
+[project.optional-dependencies]
+local-mlx = ["mlx-lm==0.31.3"]
+
 [project.scripts]
 roleplay-chat = "roleplay.chat:main"
 roleplay-datagen = "roleplay.datagen:main"
 roleplay-inference = "roleplay.inference:main"
 roleplay-sft-data = "roleplay.sft_data:main"
 roleplay-stage2-sft = "roleplay.stage2_sft:main"
+roleplay-grpo-candidates = "roleplay.grpo_candidates:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
