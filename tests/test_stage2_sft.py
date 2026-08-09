@@ -6,6 +6,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,6 +27,7 @@ from roleplay.stage2_sft import (
     download_release,
     ensure_clean_tracked_status,
     extract_release_bundle,
+    generate_run_id,
     publish_run,
     prune_run_artifacts,
     review_run,
@@ -364,6 +366,10 @@ class FileContractTests(unittest.TestCase):
             self.assertEqual(create_exclusive_directory(path), path)
             with self.assertRaisesRegex(Stage2SFTError, "已存在"):
                 create_exclusive_directory(path)
+
+    def test_run_id_is_china_standard_time_timestamp(self):
+        created_at = datetime(2026, 8, 9, 14, 30, 25, tzinfo=timezone.utc)
+        self.assertEqual(generate_run_id(created_at), "20260809-2230")
 
     def test_manifest_checks_hash_and_record_count(self):
         with tempfile.TemporaryDirectory() as temporary:

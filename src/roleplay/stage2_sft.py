@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from roleplay.sft_eval import (
     EVALUATION_SEEDS,
@@ -43,6 +44,7 @@ MIN_GPU_MEMORY_GIB = 20.0
 DEFAULT_HF_ENDPOINT = "https://hf-mirror.com"
 DEFAULT_HF_HOME = "/root/autodl-tmp/huggingface"
 DEFAULT_GITHUB_REPOSITORY = "chenkx612/local-roleplay-llm"
+CHINA_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 EXPECTED_TRAINING_PRECISION = {
     "torch_dtype": "float32",
@@ -349,6 +351,12 @@ def create_exclusive_directory(path: Path) -> Path:
     except FileExistsError as exc:
         raise Stage2SFTError(f"运行目录已存在: {path}") from exc
     return path
+
+
+def generate_run_id(created_at: datetime | None = None) -> str:
+    """Return a readable China Standard Time run identifier, precise to minutes."""
+    timestamp = created_at or datetime.now(timezone.utc)
+    return timestamp.astimezone(CHINA_TIMEZONE).strftime("%Y%m%d-%H%M")
 
 
 def validate_file_manifest(
@@ -1007,11 +1015,7 @@ def run_stage2(output_root: Path | None = None) -> Path:
         + _format_environment_status(environment_snapshot)
     )
 
-    run_id = (
-        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        + "-"
-        + uuid4().hex[:8]
-    )
+    run_id = generate_run_id()
     run_dir = create_exclusive_directory(output_root / run_id)
     work_root = create_exclusive_directory(output_root / ".work" / run_id)
     summary_path = run_dir / "run_summary.json"
