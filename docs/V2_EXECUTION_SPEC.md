@@ -172,14 +172,12 @@ enable_thinking: false
 奖励定义为：
 
 ```text
-R = Readable × (RoleConsistency + DialogueQuality) / 2 - ExploitPenalty
+R = Readable × (RoleConsistency + DialogueQuality) / 2
+    - PersonaCopyPenalty - LengthPenalty
 ```
 
-- `Readable`：0/1；乱码、严重复读或破坏性截断为 0。
-- `RoleConsistency`：0～10；检查核心 Persona 和对话视角，不得擅自建立用户个人经历或重大
-  共同关系。
-- `DialogueQuality`：0～10；检查相关性、自然度和内容价值。
-- `ExploitPenalty`：只惩罚大段照抄 Persona/示例等明显奖励投机。
+奖励子分、本地规则、Judge 配置和校准门槛以
+[`STAGE3_REWARD_SPEC.md`](STAGE3_REWARD_SPEC.md) 为准。
 
 训练前人工检查至少 5 组候选和分数。训练后保存实际配置、adapter、奖励曲线、回答样本、长度、
 复读和奖励投机观察。GRPO 必须通过技术门槛以及与 SFT 相同的三层 Dev 评估，才进入统一评测；

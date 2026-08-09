@@ -14,16 +14,22 @@
 采用混合奖励：
 
 ```text
-R = Readable × (RoleConsistency + DialogueQuality) / 2 - ExploitPenalty
+R = Readable × (RoleConsistency + DialogueQuality) / 2
+    - PersonaCopyPenalty - LengthPenalty
 ```
 
-- `Readable`：本地规则判断乱码、严重复读和破坏性截断，取 0 或 1。
-- `RoleConsistency`：Judge 按 0～10 分评估身份、性格、边界和对话视角。
-- `DialogueQuality`：Judge 按 0～10 分评估相关性、自然度和内容价值。
-- `ExploitPenalty`：本地规则只惩罚大段照抄 Persona 或风格样例。
+- `Readable`：本地可读性硬门控，取 0 或 1。
+- `RoleConsistency`：Judge 评估角色一致性，取 0～5。
+- `DialogueQuality`：Judge 评估对话质量，取 0～5。
+- `PersonaCopyPenalty`：本地惩罚大段复述 Persona。
+- `LengthPenalty`：本地惩罚不符合单轮自然对话的过长回答。
+
+详细评分子项、阈值、Judge 配置和失败处理见
+[`STAGE3_REWARD_SPEC.md`](STAGE3_REWARD_SPEC.md)。
 
 训练前用 SFT adapter 生成至少 5 组候选，人工确认奖励排序基本合理。重点检查“吾辈”、普通宠物
-边界、错误自称、无依据人物或共同经历，以及回答相关性。通过后冻结奖励。
+边界、错误自称、无依据人物或共同经历、回答有效性、超长和 Persona 复述。通过后冻结
+奖励实现。
 
 ### 第二步：执行一次 GRPO
 
