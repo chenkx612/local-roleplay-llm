@@ -827,7 +827,6 @@ def publish_run(
         f"morgana-v2 Stage 2 SFT {manifest['run_id']}",
         "--notes",
         "Stage 2 SFT 精简归档；人工复核在下载到本地后完成。",
-        "--latest=false",
     ]
     source_commit = manifest.get("source_commit")
     if isinstance(source_commit, str) and source_commit:

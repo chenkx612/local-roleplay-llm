@@ -441,6 +441,7 @@ class FileContractTests(unittest.TestCase):
             self.assertEqual(tag, "morgana-v2-stage2-sft-run-123")
             command = run_command.call_args.args[0]
             self.assertEqual(command[:3], ["gh", "release", "create"])
+            self.assertNotIn("--latest=false", command)
             self.assertIn("--target", command)
             self.assertEqual(command[command.index("--target") + 1], "abc123")
 

@@ -56,8 +56,7 @@ roleplay-stage2-sft run
 
 ```bash
 gh auth login  # 仅首次需要
-roleplay-stage2-sft publish \
-  --run-dir output/morgana-v2/stage2-sft/<run-id>
+roleplay-stage2-sft publish --run-dir output/morgana-v2/stage2-sft/<run-id>
 ```
 
 `publish` 会校验归档并上传 GitHub Release。记下输出的 Release tag，即可释放实例。
