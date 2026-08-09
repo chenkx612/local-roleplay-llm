@@ -129,7 +129,7 @@ LengthPenalty = min(2, max(0, (L - 180) / 60))
 
 ## 5. Judge 运行配置
 
-- 模型：`deepseek-v4-flash`。
+- 模型：`deepseek-v4-pro`。
 - 地址：`https://api.deepseek.com`。
 - 运行方式：AutoDL 训练进程远程调用，不在训练 GPU 上加载 Judge。
 - 推理：thinking 开启，`reasoning_effort=max`。

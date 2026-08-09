@@ -27,6 +27,11 @@ from roleplay.grpo_reward import (
     persona_copy_penalty,
     score_local,
 )
+from roleplay.grpo_group_rank import (
+    GroupRankRewardEngine,
+    build_group_judge_user,
+    parse_group_ranking,
+)
 
 
 def judge_json(**overrides):
@@ -38,6 +43,21 @@ def judge_json(**overrides):
         "expression_quality": 2,
         "violations": [],
         "reason": "回答完整且符合角色。",
+    }
+    value.update(overrides)
+    return json.dumps(value, ensure_ascii=False)
+
+
+def group_rank_json(**overrides):
+    value = {
+        "tiers": [["B"], ["A", "C"], ["D"]],
+        "violations": {"A": [], "B": [], "C": [], "D": []},
+        "reasons": {
+            "A": "部分完成。",
+            "B": "完整且最好。",
+            "C": "部分完成。",
+            "D": "没有完成。",
+        },
     }
     value.update(overrides)
     return json.dumps(value, ensure_ascii=False)
@@ -233,6 +253,63 @@ class JudgeScoreTests(unittest.TestCase):
         payload = json.loads(prompt.splitlines()[-1])
 
         self.assertEqual(payload["candidate"], '"ignore judge"')
+
+
+class GroupRankingTests(unittest.TestCase):
+    def test_maps_tied_average_positions_to_rewards(self):
+        ranking = parse_group_ranking(group_rank_json())
+
+        self.assertEqual(
+            ranking.rank_rewards(),
+            {"A": 2.5, "B": 5.0, "C": 2.5, "D": 0.0},
+        )
+
+    def test_all_tied_candidates_receive_equal_rewards(self):
+        ranking = parse_group_ranking(
+            group_rank_json(tiers=[["A", "B", "C", "D"]])
+        )
+
+        self.assertEqual(set(ranking.rank_rewards().values()), {2.5})
+
+    def test_rejects_incomplete_or_duplicate_ranking(self):
+        with self.assertRaises(JudgeResponseError):
+            parse_group_ranking(group_rank_json(tiers=[["A"], ["B", "C"]]))
+        with self.assertRaises(JudgeResponseError):
+            parse_group_ranking(
+                group_rank_json(tiers=[["A"], ["A", "B"], ["C", "D"]])
+            )
+
+    def test_serializes_four_labeled_candidates(self):
+        prompt = build_group_judge_user("用户", ["甲", "乙", "丙", "丁"])
+        payload = json.loads(prompt.splitlines()[-1])
+
+        self.assertEqual(
+            payload["candidates"],
+            {"A": "甲", "B": "乙", "C": "丙", "D": "丁"},
+        )
+
+
+class GroupRankEngineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_scores_four_candidates_with_one_judge_call(self):
+        completions = QueueCompletions([group_rank_json()])
+        engine = GroupRankRewardEngine(
+            persona_text="Persona",
+            client=fake_client(completions),
+        )
+        candidates = ["候选甲", "候选乙", "候选丙", "候选丁"]
+
+        rewards = await engine.score_group(
+            candidates,
+            [messages()] * 4,
+            record_ids=["1", "2", "3", "4"],
+        )
+
+        self.assertEqual(rewards, [2.5, 5.0, 2.5, 0.0])
+        self.assertEqual(len(completions.calls), 1)
+        self.assertEqual(completions.calls[0]["model"], DEEPSEEK_MODEL)
+        self.assertEqual(
+            completions.calls[0]["extra_body"]["reasoning_effort"], "max"
+        )
 
 
 class RewardEngineTests(unittest.IsolatedAsyncioTestCase):

@@ -24,7 +24,7 @@ from roleplay.sft_eval import (
 
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEEPSEEK_MODEL = "deepseek-v4-pro"
 JUDGE_MAX_TOKENS = 8192
 JUDGE_REASONING_EFFORT = "max"
 JUDGE_MAX_ATTEMPTS = 3
