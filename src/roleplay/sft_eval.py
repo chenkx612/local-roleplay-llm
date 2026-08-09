@@ -123,7 +123,8 @@ def has_gibberish(text: str) -> bool:
     return False
 
 
-def _has_unclosed_brackets(text: str) -> bool:
+def has_unclosed_brackets(text: str) -> bool:
+    """Return whether Chinese or ASCII parentheses are unbalanced."""
     for opening, closing in (("（", "）"), ("(", ")")):
         depth = 0
         for character in text:
@@ -161,7 +162,7 @@ def inspect_output(record: dict[str, Any]) -> dict[str, Any]:
     repeated = has_repeated_span(answer)
     abnormal_symbols = has_abnormal_symbols(answer)
     gibberish = has_gibberish(answer)
-    unclosed_brackets = _has_unclosed_brackets(answer)
+    unclosed_brackets = has_unclosed_brackets(answer)
     truncated = record.get("finish_reason") in TRUNCATED_FINISH_REASONS
     wrong_self_reference = any(alias in answer for alias in WRONG_SELF_REFERENCES)
     return {

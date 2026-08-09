@@ -16,6 +16,7 @@ from roleplay.grpo_reward import (
     GRPORewardError,
     JudgeResponseError,
     MorganaRewardEngine,
+    build_judge_system,
     build_judge_user,
     calculate_length_penalty,
     completion_length,
@@ -143,6 +144,7 @@ class LocalRewardTests(unittest.TestCase):
             "empty": ("  ", None, False),
             "gibberish": ("αβγδεζηθικλμ", None, False),
             "repeated": ("abcdefghijkl" * 3, None, False),
+            "unclosed_brackets": ("（耳朵一竖吾辈知道了。", None, False),
             "finish_reason": ("吾辈还没说完", "length", False),
             "is_truncated": ("吾辈还没说完", None, True),
         }
@@ -156,6 +158,12 @@ class LocalRewardTests(unittest.TestCase):
                 )
                 self.assertEqual(result.readable, 0)
 
+    def test_readability_logs_unclosed_bracket_reason(self):
+        result = score_local("（耳朵一竖）吾辈还想说（", "其他设定")
+
+        self.assertEqual(result.readable, 0)
+        self.assertTrue(result.unclosed_brackets)
+
     def test_emoji_and_missing_signature_do_not_fail_readability(self):
         result = score_local("今天也要打起精神啊！🐾", "其他设定")
 
@@ -163,6 +171,22 @@ class LocalRewardTests(unittest.TestCase):
 
 
 class JudgeScoreTests(unittest.TestCase):
+    def test_judge_prompt_contains_strict_scoring_anchors(self):
+        prompt = build_judge_system("Persona")
+
+        self.assertIn("逐一检查具体人物", prompt)
+        self.assertIn("不得用原作外部知识", prompt)
+        self.assertIn("曾守护或拯救世界", prompt)
+        self.assertIn("这是你给我起的", prompt)
+        self.assertIn("该类一般事实不标记", prompt)
+        self.assertIn("把回答责任推回用户", prompt)
+        self.assertIn("‘陪你聊天’不算完成要求", prompt)
+        self.assertIn("主要内容依赖无依据事实", prompt)
+        self.assertIn("补充内容时最高为 2", prompt)
+        self.assertIn("括号未闭合、句子中断", prompt)
+        self.assertIn("支撑扣分或满分的具体表达", prompt)
+        self.assertIn("输出前再次检查所有子分", prompt)
+
     def test_parses_scores_and_calculates_totals(self):
         score = parse_judge_score(judge_json())
 
