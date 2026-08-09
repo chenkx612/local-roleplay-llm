@@ -73,6 +73,15 @@ AUDIT_FIELDS = {
 }
 PROMPT_RECORD_FIELDS = {"user"}
 PROMPT_METADATA_RECORD_FIELDS = {"id", "scenario", "target_goals", "user"}
+TARGETED_ADDITIONS_FILENAME = "sft_targeted_additions.jsonl"
+TARGETED_ADDITION_FIELDS = {
+    "id",
+    "target_category",
+    "scenario",
+    "target_goals",
+    "user",
+    "assistant",
+}
 
 
 class StudentAwareSFTError(RuntimeError):
@@ -405,6 +414,59 @@ def _load_jsonl(path: Path) -> list[Any]:
     return records
 
 
+def load_targeted_train_records(
+    output_dir: Path, system_prompt: str
+) -> list[dict[str, Any]]:
+    """Load optional, manually reviewed additions as ms-swift messages."""
+    path = output_dir / TARGETED_ADDITIONS_FILENAME
+    if not path.is_file():
+        return []
+
+    additions = _load_jsonl(path)
+    records: list[dict[str, Any]] = []
+    ids: set[str] = set()
+    users: set[str] = set()
+    for line_no, addition in enumerate(additions, 1):
+        if (
+            not isinstance(addition, dict)
+            or set(addition) != TARGETED_ADDITION_FIELDS
+            or any(
+                not isinstance(addition[field], str)
+                or not addition[field].strip()
+                for field in ("id", "target_category", "scenario", "user", "assistant")
+            )
+            or not isinstance(addition["target_goals"], list)
+            or not addition["target_goals"]
+            or any(
+                not isinstance(goal, str) or not goal.strip()
+                for goal in addition["target_goals"]
+            )
+        ):
+            raise StudentAwareSFTError(
+                f"定向补强数据第 {line_no} 行结构或内容无效"
+            )
+        if addition["id"] in ids or addition["user"] in users:
+            raise StudentAwareSFTError("定向补强数据包含重复 id 或 user")
+        ids.add(addition["id"])
+        users.add(addition["user"])
+        try:
+            validate_teacher_final_answer(addition["assistant"])
+        except ValueError as exc:
+            raise StudentAwareSFTError(
+                f"定向补强数据第 {line_no} 行回答无效: {exc}"
+            ) from exc
+        records.append(
+            {
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": addition["user"]},
+                    {"role": "assistant", "content": addition["assistant"]},
+                ]
+            }
+        )
+    return records
+
+
 def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -530,6 +592,7 @@ def load_resume_bundle(
     expected_metadata: dict[str, Any],
     *,
     restart: bool,
+    targeted_train_records: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Load a valid aligned prefix, or start empty when explicitly requested."""
     if restart:
@@ -550,6 +613,12 @@ def load_resume_bundle(
     baseline_records = _load_jsonl(paths[0])
     audit_records = _load_jsonl(paths[1])
     train_records = _load_jsonl(paths[2])
+    targeted_train_records = targeted_train_records or []
+    if len(train_records) == len(baseline_records) + len(targeted_train_records):
+        suffix_start = len(baseline_records)
+        if train_records[suffix_start:] != targeted_train_records:
+            raise StudentAwareSFTError("已有训练数据的定向补强后缀不匹配")
+        train_records = train_records[:suffix_start]
     _validate_resume_records(
         prompts, system_prompt, baseline_records, audit_records, train_records
     )
@@ -606,8 +675,14 @@ def run_student_aware_sft(
     train_path = output_dir / "sft_train.jsonl"
     metadata_path = output_dir / "sft_generation_meta.json"
     paths = (baseline_path, audit_path, train_path, metadata_path)
+    targeted_train_records = load_targeted_train_records(output_dir, system_prompt)
     baseline_records, audit_records, train_records = load_resume_bundle(
-        prompts, system_prompt, paths, metadata, restart=restart
+        prompts,
+        system_prompt,
+        paths,
+        metadata,
+        restart=restart,
+        targeted_train_records=targeted_train_records,
     )
 
     start = len(baseline_records)
@@ -677,7 +752,17 @@ def run_student_aware_sft(
             f"(Student {student_attempts} 次, Teacher {teacher_attempts} 次)"
         )
 
-    print(f"完成，共 {len(prompts)} 条")
+    if targeted_train_records:
+        write_jsonl_bundle(
+            {
+                baseline_path: baseline_records,
+                audit_path: audit_records,
+                train_path: train_records + targeted_train_records,
+                metadata_path: [metadata],
+            }
+        )
+
+    print(f"完成，共 {len(prompts) + len(targeted_train_records)} 条")
     return {
         "baseline": baseline_path,
         "audit": audit_path,
@@ -924,6 +1009,7 @@ def rerun_teacher_correction(
     persona = load_persona(persona_path)
     system_prompt = render_persona_prompt(persona)
     examples = load_style_examples(examples_path)
+    targeted_train_records = load_targeted_train_records(output_dir, system_prompt)
     teacher_system = build_teacher_system(system_prompt, _render_examples(examples))
     resolved_teacher_base_url = teacher_base_url or DEEPSEEK_BASE_URL
     metadata = build_generation_metadata(
@@ -983,7 +1069,7 @@ def rerun_teacher_correction(
         {
             baseline_path: baseline_records,
             audit_path: audit_records,
-            train_path: train_records,
+            train_path: train_records + targeted_train_records,
             previous_metadata_path: [metadata],
         }
     )

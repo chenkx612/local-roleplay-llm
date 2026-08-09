@@ -270,9 +270,9 @@ class TrainingPrecisionValidationTests(unittest.TestCase):
             "num_train_epochs": 3,
         }
 
-    def test_accepts_pure_fp32_config_and_plans_39_steps(self):
+    def test_accepts_pure_fp32_config_and_plans_48_steps(self):
         self.assertEqual(
-            validate_training_config(self.pure_fp32_config(), 50), 39
+            validate_training_config(self.pure_fp32_config(), 62), 48
         )
 
     def test_rejects_each_mixed_precision_or_dtype_change(self):
@@ -290,7 +290,7 @@ class TrainingPrecisionValidationTests(unittest.TestCase):
                 with self.assertRaisesRegex(
                     Stage2SFTError, "冻结训练配置不正确"
                 ):
-                    validate_training_config(config, 50)
+                    validate_training_config(config, 62)
 
     def test_accepts_effective_pure_fp32_args(self):
         with tempfile.TemporaryDirectory() as temporary:

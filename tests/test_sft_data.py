@@ -328,6 +328,25 @@ class StudentAwarePipelineTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def write_targeted_addition(self) -> str:
+        answer = "（点头）吾辈会先回答你真正问的事。"
+        (self.root / "sft_targeted_additions.jsonl").write_text(
+            json.dumps(
+                {
+                    "id": "sft_0003",
+                    "target_category": "问题意图与回答相关性",
+                    "scenario": "daily",
+                    "target_goals": ["dialogue_quality"],
+                    "user": "先回答我的问题。",
+                    "assistant": answer,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return answer
+
     def run_pipeline(
         self, student, teacher, *, restart=False, student_model="student"
     ):
@@ -475,10 +494,28 @@ class StudentAwarePipelineTests(unittest.TestCase):
 
     def test_formal_teacher_only_rerun_keeps_frozen_baselines(self):
         self.write_prompts("问题一", "问题二")
+        targeted_answer = self.write_targeted_addition()
         answers = ["（点头）baseline 1", "（点头）baseline 2"]
-        self.run_pipeline(
+        initial_outputs = self.run_pipeline(
             _FakeClient([(answer, "stop") for answer in answers]),
             _FakeClient([(audit_json(answer), "stop") for answer in answers]),
+        )
+        initial_train = [
+            json.loads(line)
+            for line in initial_outputs["train"]
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        self.assertEqual(
+            [record["messages"][2]["content"] for record in initial_train],
+            answers + [targeted_answer],
+        )
+
+        initial_train_bytes = initial_outputs["train"].read_bytes()
+        resumed_outputs = self.run_pipeline(_FakeClient([]), _FakeClient([]))
+        self.assertEqual(
+            resumed_outputs["train"].read_bytes(),
+            initial_train_bytes,
         )
         baseline_path = self.root / "sft_baseline_outputs.jsonl"
         frozen_baselines = baseline_path.read_bytes()
@@ -511,7 +548,8 @@ class StudentAwarePipelineTests(unittest.TestCase):
             for line in outputs["train"].read_text(encoding="utf-8").splitlines()
         ]
         self.assertEqual(
-            [record["messages"][2]["content"] for record in train], improved
+            [record["messages"][2]["content"] for record in train],
+            improved + [targeted_answer],
         )
 
     def test_teacher_retry_uses_flash_reasoning_configuration(self):

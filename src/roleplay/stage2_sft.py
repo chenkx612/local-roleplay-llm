@@ -70,8 +70,12 @@ DISABLED_ACCELERATION_PACKAGES = (
 
 EXPECTED_INPUTS = {
     "data/runs/morgana-v2/sft_train.jsonl": {
-        "records": 50,
-        "sha256": "2c05d7618f433d3ddf972c8563ae8c3e5662c9ab227fbe83fe01f0282c4f720d",
+        "records": 62,
+        "sha256": "c1ec8824db45db98f0e82547938a67e652fe75b759278d98aef5d0552daab142",
+    },
+    "data/runs/morgana-v2/sft_targeted_additions.jsonl": {
+        "records": 12,
+        "sha256": "c299a2f9de1542340d25f92c9947cc8fb172aabb4b4668428b4aa5c9cbcd5a60",
     },
     "data/runs/morgana-v2/dev.jsonl": {
         "records": 10,
@@ -461,9 +465,9 @@ def validate_training_config(
         )
         * train_config["num_train_epochs"]
     )
-    if planned_optimizer_steps != 39:
+    if planned_optimizer_steps != 48:
         raise Stage2SFTError(
-            "冻结训练配置不再产生预期的 39 steps: "
+            "冻结训练配置不再产生预期的 48 steps: "
             f"{planned_optimizer_steps}"
         )
     return planned_optimizer_steps

@@ -47,7 +47,8 @@ system prompt、Teacher 标签、Base 输出和 SFT adapter 不进入 v2 训练�
 | 数据 | 数量 | 每类场景 | 用途 |
 |---|---:|---:|---|
 | Pilot | 5 | 1 | 验证 Student/Teacher 链路 |
-| SFT | 50 | 10 | 监督训练 |
+| SFT（原始 split） | 50 | 10 | Teacher-corrected 监督训练 |
+| SFT（定向补强） | 12 | 不要求均衡 | 针对 Dev bad case 补强 |
 | GRPO | 20 | 4 | 强化学习 |
 | Dev | 10 | 2 | 阶段选择与观察 |
 | Eval | 20 | 4 | 最终统一评测 |
@@ -66,8 +67,10 @@ Persona + style examples + Prompt + baseline → Teacher 最小充分纠错
 Teacher 依次检查生成稳定性、角色一致性和对话质量。合格回答原样保留，不合格回答只做必要
 改写。动作括号、emoji、固定开头或精确复述 Persona 均不是通过条件。
 
-先运行五类场景各一条的 Pilot 并人工复核，再生成 50 条正式标签。正式产物必须结构正确、逐条
-对齐、回答非空，且没有乱码和明显复读；保留 Student baseline、Teacher audit 和最终训练标签。
+先运行五类场景各一条的 Pilot 并人工复核，再生成 50 条 Teacher-corrected 正式标签。根据第三次
+SFT 的 Dev bad case，另加 12 条人工复核的定向样本，覆盖主客体识别、事件与情绪识别、身份边界、
+问题意图与回答相关性，最终共 62 条。正式产物必须结构正确、逐条对齐、回答非空，且没有乱码和
+明显复读；保留 Student baseline、Teacher audit、定向补强源文件和最终训练标签。
 
 ### 2.4 Base Dev
 
@@ -75,8 +78,8 @@ Teacher 依次检查生成稳定性、角色一致性和对话质量。合格回
 链路、seed、聊天模板和生成参数；后续 SFT 与 GRPO 沿用这些条件即可。无需为基线额外搭建
 Transformers 环境，也不要求多 seed 重复采样。
 
-进入 SFT 前必须具备：冻结输入、四个有效 split、通过人工复核的 Pilot、50 条有效 SFT 标签和
-10 条有效 Base Dev。
+进入下一次 SFT 前必须具备：冻结输入、四个有效 split、通过人工复核的 Pilot、50 条有效
+Teacher-corrected 标签、12 条有效定向标签和 10 条有效 Base Dev。
 
 ## 3. QLoRA SFT
 
@@ -104,11 +107,11 @@ gradient_accumulation_steps: 2
 enable_thinking: false
 ```
 
-该配置用于第二次 SFT。第一次 SFT 的配置和结果已原样归档；第二次把有效 batch size 从 16
-降到 4，使 50 条数据、3 epochs 下的预期 optimizer step 从 12 增加到 39。物理 batch size
-设为 2、梯度累积设为 2。运行环境从 Colab T4 迁移到 AutoDL 3090 后仍冻结这一配置，不利用
-新增显存调整 batch；数据、学习率、epoch、LoRA 和推理参数保持不变。训练前还必须确认 50 条
-assistant 标签全部包含“吾辈”，且不包含“本大爷”或“本喵”。
+该配置从第二次 SFT 起保持不变。第一次 SFT 的配置和结果已原样归档；第二、三次使用 50 条数据，
+把有效 batch size 从 16 降到 4，使 3 epochs 下的预期 optimizer step 从 12 增加到 39。下一次
+训练只把数据增加到 62 条，对应 48 个 optimizer steps；物理 batch size 仍为 2、梯度累积仍为 2，
+不改学习率、epoch、LoRA 或推理参数。训练前还必须确认 62 条 assistant 标签全部包含“吾辈”，
+且不包含“本大爷”或“本喵”。
 
 第二次 SFT 的 AutoDL 首次运行虽然完成了 39/39 个记录步，但 ms-swift 将未显式指定的
 混合精度解析为 `fp16=true`，开头连续 6 个 `grad_norm` 为 `NaN`，因此技术门槛失败。
@@ -198,7 +201,7 @@ SFT、GRPO 各 20 条输出。Eval 只用于最终比较。
 
 - [ ] 冻结 v2 Persona、风格样例、system prompt 和输入哈希。
 - [ ] 生成并验证隔离的 SFT/GRPO/Dev/Eval。
-- [ ] 完成 Pilot、50 条 Teacher-corrected SFT 和人工抽查。
+- [ ] 完成 Pilot、50 条 Teacher-corrected SFT、12 条定向补强和人工抽查。
 - [ ] 用固定 seed 生成 10 条可读的 Base Dev，并记录推理条件。
 
 ### Milestone 2：SFT

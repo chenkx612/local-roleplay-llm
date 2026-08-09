@@ -1,5 +1,18 @@
 # morgana-v2 运行日志
 
+## 2026-08-09：增加四类定向 SFT 样本
+
+- 根据第三次 SFT 的 Dev bad case，新增 12 条人工样本：主客体识别、事件与情绪识别、身份边界、
+  问题意图与回答相关性各 3 条。新增 Prompt 不复刻 Dev，与既有训练 Prompt 和 Dev 的字符
+  相似度均低于 0.6。
+- 新增明细保存在 `data/runs/morgana-v2/sft_targeted_additions.jsonl`，并合并到
+  `sft_train.jsonl`；Teacher v8 的 50 条原始审计保持不变。
+- 当前训练集为 62 条，62/62 使用“吾辈”、0/62 使用错误自称，平均 113.2 字符、最长
+  246 字符；训练集 SHA-256 为
+  `c1ec8824db45db98f0e82547938a67e652fe75b759278d98aef5d0552daab142`。
+- 训练参数保持不变；按 batch size 2、gradient accumulation 2、3 epochs 计算，下一轮预期
+  48 个 optimizer steps。Stage 2 冻结数量、哈希和 notebook 校验已同步。
+
 ## 2026-08-09：第三次 SFT 后定向清洗两条标签
 
 - 复查第三次 SFT 的 Dev 输出后，仅确认 `sft_0003` 和 `sft_0029` 存在明确标签质量问题；
