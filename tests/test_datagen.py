@@ -84,7 +84,7 @@ class ScenarioDistributionTests(unittest.TestCase):
             self.assertLessEqual(max(distribution.values()) - min(distribution.values()), 1)
 
     def test_mvp_targets_match_plan(self):
-        expected = {"sft": 50, "grpo": 20, "dev": 10, "eval": 20}
+        expected = {"sft": 50, "dpo": 20, "dev": 10, "eval": 20}
         self.assertEqual(MVP_TARGETS, expected)
 
     def test_scenarios_have_known_target_goals(self):
@@ -535,11 +535,11 @@ class GenerateEndToEndTests(unittest.TestCase):
 
     def test_writes_four_isolated_prompt_files(self):
         outputs = self._generate()
-        self.assertEqual(set(outputs), {"sft", "rl", "dev", "eval"})
+        self.assertEqual(set(outputs), {"sft", "dpo", "dev", "eval"})
 
-        expected = {"sft": 50, "rl": 20, "dev": 10, "eval": 20}
-        id_prefixes = {"sft": "sft", "rl": "grpo", "dev": "dev", "eval": "eval"}
-        target_names = {"sft": "sft", "rl": "grpo", "dev": "dev", "eval": "eval"}
+        expected = {"sft": 50, "dpo": 20, "dev": 10, "eval": 20}
+        id_prefixes = {"sft": "sft", "dpo": "dpo", "dev": "dev", "eval": "eval"}
+        target_names = {"sft": "sft", "dpo": "dpo", "dev": "dev", "eval": "eval"}
         scenario_ids = {scenario["id"] for scenario in SCENARIOS}
         goal_ids = {goal["id"] for goal in GOALS}
         all_keys: set[str] = set()
@@ -723,7 +723,7 @@ class GenerateEndToEndTests(unittest.TestCase):
     def test_shortfall_does_not_overwrite_existing_bundle(self):
         paths = [
             self.tmpdir / "sft_train_prompts.jsonl",
-            self.tmpdir / "rl_train.jsonl",
+            self.tmpdir / "dpo_prompts.jsonl",
             self.tmpdir / "dev.jsonl",
             self.tmpdir / "eval.jsonl",
         ]
