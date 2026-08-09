@@ -21,8 +21,9 @@
 - Base、SFT、GRPO 比较固定使用同一模型 revision、聊天模板和生成参数；学习项目允许使用
   同一可用推理链路，不要求为此额外搭建 Transformers 专用环境。
 
-v1 数据和模型产物保持只读。角色源设定可以复用，但必须重新保存 v2 输入快照和哈希；v1 的
-system prompt、Teacher 标签、Base 输出和 SFT adapter 不进入 v2 训练或正式评测。
+v1 的结论保留在 `V1_RETROSPECTIVE.md` 和 `ISSUES.md`，raw 数据和模型产物已清理。
+角色源设定可以复用，但必须重新保存 v2 输入快照和哈希；v1 的 system prompt、
+Teacher 标签、Base 输出和 SFT adapter 不进入 v2 训练或正式评测。
 
 每次运行记录输入哈希、代码 commit、模型 revision、环境版本、实际命令、配置、日志和输出。
 训练集、Dev 和 Eval 必须隔离。
@@ -70,7 +71,10 @@ Teacher 依次检查生成稳定性、角色一致性和对话质量。合格回
 先运行五类场景各一条的 Pilot 并人工复核，再生成 50 条 Teacher-corrected 正式标签。根据第三次
 SFT 的 Dev bad case，另加 12 条人工复核的定向样本，覆盖主客体识别、事件与情绪识别、身份边界、
 问题意图与回答相关性，最终共 62 条。正式产物必须结构正确、逐条对齐、回答非空，且没有乱码和
-明显复读；保留 Student baseline、Teacher audit、定向补强源文件和最终训练标签。
+明显复读。在人工复核结论、关键统计和哈希写入 `RUNLOG.md` 与复核文档后，
+Student baseline 和 Teacher audit 全量文件可作为 raw 中间产物删除；保留定向补强源文件、
+最终训练标签，并至少保留一组完整的 Student baseline、Teacher 判断与最终回答对照，
+作为该阶段的最小可检查产物。
 
 ### 2.4 Base Dev
 
@@ -107,7 +111,8 @@ gradient_accumulation_steps: 2
 enable_thinking: false
 ```
 
-该配置从第二次 SFT 起保持不变。第一次 SFT 的配置和结果已原样归档；第二、三次使用 50 条数据，
+该配置从第二次 SFT 起保持不变。第一次 SFT 的配置和结果已写入 `RUNLOG.md`；
+其 raw 产物在阶段 2 收尾后删除。第二、三次使用 50 条数据，
 把有效 batch size 从 16 降到 4，使 3 epochs 下的预期 optimizer step 从 12 增加到 39。下一次
 训练只把数据增加到 62 条，对应 48 个 optimizer steps；物理 batch size 仍为 2、梯度累积仍为 2，
 不改学习率、epoch、LoRA 或推理参数。训练前还必须确认 62 条 assistant 标签全部包含“吾辈”，

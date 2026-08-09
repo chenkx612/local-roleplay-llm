@@ -59,7 +59,6 @@ _load_dotenv()
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
-DEFAULT_RUN_ID = "morgana-v1"
 
 MVP_TARGETS: dict[str, int] = {"sft": 50, "grpo": 20, "dev": 10, "eval": 20}
 SPLIT_ORDER: tuple[str, ...] = ("sft", "grpo", "dev", "eval")
@@ -1083,8 +1082,8 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=None,
-        help=f"运行产物目录（默认 data/runs/{DEFAULT_RUN_ID}）",
+        required=True,
+        help="新运行产物目录（必填，避免覆盖已冻结 run）",
     )
     parser.add_argument(
         "--api-key", default=None, help="DeepSeek API Key（默认读 DEEPSEEK_API_KEY）"
@@ -1107,7 +1106,7 @@ def main() -> None:
     examples_path = args.style_examples or (
         args.persona.parent / "style_examples.jsonl"
     )
-    output_dir = args.output_dir or Path("data/runs") / DEFAULT_RUN_ID
+    output_dir = args.output_dir
     try:
         if args.snapshot_only:
             paths = save_input_snapshot(

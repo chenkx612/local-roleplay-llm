@@ -1,9 +1,12 @@
 # v2 Issues
 
+> 2026-08-09 进行了历史 raw 产物清理。下文标注为“原位置”的路径用于说明问题发生时的
+> 证据来源，目录可能已删除；当前流程仍依赖的 v2 最终产物保留。
+
 ## P0｜第二次 SFT 隐式启用 FP16，梯度溢出（已解决）
 
 **位置：** `output/morgana-v2/stage2-sft/2/run_summary.json`、
-`output/morgana-v2/stage2-sft/2/train.log`、`configs/morgana_v2_sft.yaml`
+`configs/morgana_v2_sft.yaml`；原始 `train.log` 已清理。
 
 **现象：** AutoDL run 完成 39/39 个记录步，但前 6 个 `grad_norm` 为 `NaN`。流水线正确地
 标记为 `training_failed`，没有把 checkpoint 当作正式 adapter，也没有继续 Dev 推理。
@@ -14,9 +17,8 @@
 **修复与验收：** 显式设置 `fp16=false`、`bf16=false`；训练前冻结校验纯 FP32 和预期 steps，
 训练后再从 `args.json` 校验实际精度并写入 summary，失败 checkpoint 不续训。第三次和第四次
 全新运行分别完成 39/39、48/48 steps，梯度全部有限，186/186 个 LoRA-B 张量非零且有限，
-adapter 均可重新加载并完成 Dev 推理。本项已由
-`output/morgana-v2/stage2-sft/3/run_summary.json` 和
-`output/morgana-v2/stage2-sft/4/run_summary.json` 完整验证。
+adapter 均可重新加载并完成 Dev 推理。本项由当时的第三、四次
+`run_summary.json` 验证；第三次 raw 已清理，第四次作为当前阶段 3 输入保留。
 
 ## P1｜SFT 核心角色信号仍未稳定迁移（阶段 2 放行，转 GRPO 观察）
 
@@ -36,8 +38,8 @@ adapter 均可重新加载并完成 Dev 推理。本项已由
 
 ## P3｜Teacher-corrected SFT 仍有局部瑕疵（不阻断）
 
-**位置：** `data/runs/morgana-v2/sft_teacher_edits.jsonl`、
-`data/runs/morgana-v2/sft_train.jsonl`、`data/runs/morgana-v2/sft_label_review.md`
+**位置：** `data/runs/morgana-v2/sft_train.jsonl`、
+`data/runs/morgana-v2/sft_label_review.md`；Teacher audit raw 已清理。
 
 **现象：** 50 条结构正确，最终答案无空值、乱码或明显复读，严重主客体和出戏问题已修复。
 少数标签仍有局部逻辑、轻度猜测或正典细节不稳定，但回答均可读、相关且角色身份成立。
@@ -57,7 +59,8 @@ adapter 均可重新加载并完成 Dev 推理。本项已由
 
 > 本文是 `morgana-v1` 的问题档案。v1 已于 2026-08-08 收尾，以下未完成项不再作为当前流程的
 > 阻断项；v2 若再次出现同类问题，应以新记录和新产物重新判断。v1 总结见
-> `V1_RETROSPECTIVE.md`。
+> `V1_RETROSPECTIVE.md`。下文的 v1 产物路径均为原位置，raw 文件已于
+> 2026-08-09 清理。
 
 ## 优先级说明
 

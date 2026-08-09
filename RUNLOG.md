@@ -1,5 +1,20 @@
 # morgana-v2 运行日志
 
+## 2026-08-09：历史 raw 产物清理
+
+- v1 实验结论、关键配置、指标、失败原因和结论边界已汇总到
+  `V1_RETROSPECTIVE.md` 和 `ISSUES.md`；删除 `data/runs/morgana-v1/`、
+  `output/morgana-v1/` 及旧配置文件；第三次的完整主配置已迁入
+  `V1_RETROSPECTIVE.md`，不再保留 v1 raw 数据、日志和 adapter。
+- 删除 `data/archive/pre-runs-legacy/`，其内容已被 v1/v2 的隔离数据链路取代。
+- v2 删除已通过的 Pilot raw，保留一份含前后对照的最小人工复核文档；删除可由最终
+  `sft_train.jsonl` 和复核文档代替的 Student baseline 与 Teacher audit。保留冻结输入、
+  四个数据 split、最终训练集、Base Dev 基线和生成
+  metadata。
+- v2 SFT 只保留第二次失败的最小 `run_summary.json` 和当前第四次最终
+  run；第一、三次被替代 run 的 raw 日志、输出与 adapter 已删除。第四次 adapter
+  是阶段 3 的当前输入，不属于本次历史清理。
+
 ## 2026-08-09：阶段 2 SFT 收尾与复盘
 
 ### 最终候选与训练有效性
@@ -14,7 +29,7 @@
   重新加载后完成 Base/SFT 对齐 Dev 推理。技术门槛全部通过。
 - 正式 adapter SHA-256 为
   `617e6e00535fa356272d32fb16d8fe8d451a9c3cfd2f766f56af02cdf2f9b78d`。第三次及更早
-  adapter 只作为实验过程证据保留，不进入阶段 3。
+  adapter 的实验结论保留在本日志，raw 权重已清理，不进入阶段 3。
 
 ### Dev、人工复核与阶段决策
 
@@ -189,7 +204,8 @@
 - Student：`mlx-community/Qwen3.5-2B-4bit`，revision
   `674aaa7240b91e8012fcad5d791b7dfe5ba90207`，MLX OpenAI-compatible server。
 - Teacher：`deepseek-v4-flash`，thinking enabled，reasoning effort high。
-- 输入：SFT 五类场景各第一条，共 5 条；输出：`data/runs/morgana-v2/pilot/`。
+- 输入：SFT 五类场景各第一条，共 5 条；Pilot raw 在验收后已清理，保留
+  `data/runs/morgana-v2/pilot/pilot_review.md` 作为最小可检查样例。
 - 5/5 Student 和 Teacher 均首次调用成功，无重试、截断或残缺产物；三份 JSONL 逐条对齐。
 - Teacher 决策为 5 `rewrite` / 0 `light_rewrite` / 0 `keep`。Student baseline 存在明显重复、
   逻辑错乱、角色偏离或未直接回答，全部重写有充分理由。
@@ -255,5 +271,5 @@
   optimizer step 的同时利用 GPU 剩余显存，提高训练吞吐。
 - 训练前置检查新增训练标签角色信号断言，并把标签统计和预期 optimizer step 写入
   `run_summary.json`。第二轮仍沿用首轮稳定性和匿名人工门槛，不调整 Dev 或验收阈值。
-- 第二轮运行前已清空执行环境中的首轮输出；首轮证据继续保留在
-  `output/morgana-v2/stage2-sft/1/`。本地完整测试 92 项通过。
+- 第二轮运行前已清空执行环境中的首轮输出；首轮结论保留在本日志，raw 产物
+  已于阶段 2 收尾后清理。本地完整测试 92 项通过。

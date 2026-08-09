@@ -35,6 +35,7 @@ from roleplay.datagen import (
     format_prompt_records,
     generate,
     load_examples,
+    main,
     normalize_prompt,
     parse_prompts,
     save_input_snapshot,
@@ -61,6 +62,17 @@ MORGANA_CONTEXT = GenerationContext(
     user_name="莲",
     role_self_references=("吾辈",),
 )
+
+
+class CliTests(unittest.TestCase):
+    def test_output_dir_is_required_to_protect_frozen_runs(self):
+        stderr = io.StringIO()
+        with patch("sys.argv", ["roleplay-datagen"]), redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as raised:
+                main()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--output-dir", stderr.getvalue())
 
 
 class ScenarioDistributionTests(unittest.TestCase):

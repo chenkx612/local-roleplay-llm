@@ -12,13 +12,14 @@ v1 的最终价值不是证明模型已经达到可用标准，而是完成了�
 2. 发现原目标同时追求格式、事实、风格和内容，既分散训练信号，也让低价值的格式规则能够
    单独否决已有改善，因此为 v2 收敛出三个递进目标。
 
-v1 的所有数据与模型产物保持只读，不再按新口径回写状态。v2 使用新的运行目录重新开始。
+v1 的结论、关键配置、指标和结论边界固化在本文与 `ISSUES.md`。为减少历史负担，
+raw 数据、日志、中间输出和 adapter 已于 2026-08-09 清理；v2 使用独立的运行目录。
 
 ## 2. 实验范围与版本边界
 
 - 角色：摩尔加纳。
-- 数据目录：`data/runs/morgana-v1/`。
-- SFT 目录：`output/morgana-v1/stage2-sft/1/`、`2/`、`3/`。
+- 原数据目录：`data/runs/morgana-v1/`（已清理）。
+- 原 SFT 目录：`output/morgana-v1/stage2-sft/1/`、`2/`、`3/`（已清理）。
 - Student/Base 本地模型：`mlx-community/Qwen3.5-2B-4bit`，revision
   `674aaa7240b91e8012fcad5d791b7dfe5ba90207`。
 - 训练基座：`Qwen/Qwen3.5-2B`，revision
@@ -77,6 +78,51 @@ v1 数据和 Teacher rubric 强调固定动作格式、风格、事实/背景约
 | 1 | `20260807T170226Z-ad78fb8f` | FP16，1 epoch，4 steps | 4 个 `grad_norm` 均为 NaN；186 个 LoRA-B 全为零，训练无效 | SFT 5/10 截断，且与 MLX Base 后端不一致 | 技术失败，禁止进入 GRPO |
 | 2 | `20260808T053633Z-01b40cf2` | FP32，1 epoch，4 steps | 梯度有限；186/186 LoRA-B 非零；adapter 可重载 | 同后端 Base 截断 1/10，SFT 截断 3/10；双方严格格式 0/10 | 有效训练，但旧机械门槛失败 |
 | 3 | `20260808T094035Z-7918de52` | FP32，3 epochs，12 steps | 12 个梯度有限且为正；186/186 LoRA-B 非零；adapter 可重载 | 同后端三 seed 共 30 对，稳定性和部分角色诊断改善，但有 1 条不可读输出 | 有效训练，未获准进入 GRPO |
+
+第三次作为 v1 最终主配置，原 YAML 文件删除后在此保留完整参数：
+
+```yaml
+model: Qwen/Qwen3.5-2B
+model_revision: 965dcc54bc9c0591873df0e9869c056a54d323d1
+use_hf: true
+dataset: data/runs/morgana-v1/sft_train.jsonl
+split_dataset_ratio: 0.0
+tuner_type: lora
+target_modules: [all-linear]
+freeze_llm: false
+freeze_vit: true
+freeze_aligner: true
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+torch_dtype: float32
+quant_method: bnb
+quant_bits: 4
+bnb_4bit_compute_dtype: float32
+bnb_4bit_quant_type: nf4
+bnb_4bit_use_double_quant: true
+lora_dtype: float32
+max_length: 1024
+loss_scale: last_round+ignore_empty_think
+add_non_thinking_prefix: true
+enable_thinking: false
+packing: false
+padding_free: false
+num_train_epochs: 3
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+learning_rate: 5.0e-5
+gradient_checkpointing: true
+seed: 20260807
+data_seed: 20260807
+logging_steps: 1
+save_strategy: epoch
+save_total_limit: 1
+save_only_model: true
+report_to: none
+output_dir: output/morgana-v1/stage2-sft/full
+add_version: false
+```
 
 ### 4.1 第一次：识别“训练跑完但参数未更新”
 
@@ -163,10 +209,9 @@ v2 因此只保留三个递进目标：
 因此 v1 以“工程链路验证成功、旧实验目标未完成、研究问题迁移到 v2”正式收尾。下一步从
 `morgana-v2` 的 Persona/system prompt、数据和 Base 基线重新建立可比实验。
 
-## 8. 归档索引
+## 8. 保留范围
 
-- 阶段一事实与产物：`data/runs/morgana-v1/`
-- 第一次 SFT：`output/morgana-v1/stage2-sft/1/`
-- 第二次 SFT：`output/morgana-v1/stage2-sft/2/`
-- 第三次 SFT：`output/morgana-v1/stage2-sft/3/`
-- v1 问题记录：`ISSUES.md`
+- 实验结论、关键配置、指标、失败原因和结论边界：本文。
+- 具体问题、修复方式和验收标准：`ISSUES.md`。
+- v1 raw 数据、日志、中间输出、训练权重和旧配置已于 2026-08-09 清理，不再作为
+  仓库内归档。如需追查某个已提交的文本产物，可查看清理前的 Git 历史。
