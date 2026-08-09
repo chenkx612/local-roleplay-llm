@@ -18,9 +18,7 @@ This is a Python 3.10+ package using the `src` layout.
 - `src/roleplay/`: application code. `persona.py` validates and renders persona data; `datagen.py` builds training/evaluation datasets; `inference.py` runs batch inference; `chat.py` provides interactive chat.
 - `tests/`: `unittest` suites corresponding to the main modules.
 - `data/`: JSON and JSONL persona, style, training, evaluation, and generated-output artifacts.
-- `PLAN.md`: intended training pipeline and acceptance criteria.
-- `RUNLOG.md`: actual run configurations, artifacts, observations, and retrospective evidence.
-- `ISSUES.md`: known limitations and follow-up work.
+- `docs/`: project plans, execution guides, run records, issue archives, and retrospectives.
 
 Keep reusable logic in `src/roleplay/`, CLI parsing in each module's `main()`, and deterministic API behavior covered with fake clients in `tests/`.
 

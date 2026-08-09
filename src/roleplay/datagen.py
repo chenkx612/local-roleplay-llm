@@ -2,7 +2,7 @@
 
 The teacher is prompted with the validated persona and a few in-character examples,
 then asked to emit user prompts covering the three layered role-play goals and five
-scenario types required by PLAN.md §3.2:
+scenario types required by docs/PLAN.md §3.2:
 
     1. 日常对话
     2. 角色背景与人物关系
@@ -432,7 +432,7 @@ def _candidate_pool_distribution(
 
 
 def load_examples(path: Path) -> list[dict[str, str]]:
-    """Load and strictly validate the style examples required by PLAN.md."""
+    """Load and strictly validate the style examples required by docs/PLAN.md."""
     examples: list[dict[str, str]] = []
     with path.open(encoding="utf-8") as file:
         for line_no, line in enumerate(file, 1):

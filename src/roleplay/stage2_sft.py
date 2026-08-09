@@ -229,7 +229,7 @@ def capture_environment() -> tuple[dict[str, Any], Any]:
         import torch
     except ImportError as exc:
         raise Stage2SFTError(
-            "缺少 PyTorch；请选择 AUTODL.md 指定的 PyTorch 2.8.0 基础镜像"
+            "缺少 PyTorch；请选择 docs/AUTODL.md 指定的 PyTorch 2.8.0 基础镜像"
         ) from exc
 
     cuda_available = torch.cuda.is_available()

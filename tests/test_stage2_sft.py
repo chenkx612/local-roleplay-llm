@@ -194,7 +194,7 @@ class EnvironmentValidationTests(unittest.TestCase):
     def test_rejects_tracked_changes_but_accepts_clean_status(self):
         ensure_clean_tracked_status("")
         with self.assertRaisesRegex(Stage2SFTError, "tracked"):
-            ensure_clean_tracked_status(" M RUNLOG.md\n")
+            ensure_clean_tracked_status(" M docs/RUNLOG.md\n")
 
 
 class PackageValidationTests(unittest.TestCase):
