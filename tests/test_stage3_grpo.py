@@ -98,6 +98,13 @@ class FrozenInputTests(unittest.TestCase):
 
         validate_training_config(config)
 
+    def test_rejects_padding_free_grpo_config(self):
+        config = _load_yaml(Path("configs/morgana_v2_grpo.yaml"))
+        config["padding_free"] = True
+
+        with self.assertRaisesRegex(Stage3GRPOError, "padding_free"):
+            validate_training_config(config)
+
 
 class RewardValidationTests(unittest.TestCase):
     def test_requires_four_successful_rewards_per_prompt(self):

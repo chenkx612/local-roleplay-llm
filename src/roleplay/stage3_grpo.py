@@ -101,6 +101,8 @@ EXPECTED_CONFIG = {
     "num_train_epochs": 1,
     "learning_rate": 1.0e-6,
     "enable_thinking": False,
+    "packing": False,
+    "padding_free": False,
     "use_vllm": False,
     "external_plugins": ["src/roleplay/grpo_reward_plugin.py"],
     "reward_funcs": ["morgana_reward"],
