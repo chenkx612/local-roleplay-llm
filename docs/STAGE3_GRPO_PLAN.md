@@ -33,7 +33,7 @@ R = Readable × (RoleConsistency + DialogueQuality) / 2
 
 ### 第二步：执行一次 GRPO
 
-从 `output/morgana-v2/stage2-sft/4/adapter` 开始，使用冻结的 20 条 GRPO Prompt：
+从 `output/morgana-v2/stage2-sft/final/adapter` 开始，使用冻结的 20 条 GRPO Prompt：
 
 ```yaml
 num_generations: 4

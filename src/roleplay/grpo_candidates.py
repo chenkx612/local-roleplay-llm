@@ -21,7 +21,7 @@ BASE_SNAPSHOT = (
     / "snapshots"
     / BASE_REVISION
 )
-PEFT_ADAPTER = ROOT / "output/morgana-v2/stage2-sft/4/adapter"
+PEFT_ADAPTER = ROOT / "output/morgana-v2/stage2-sft/final/adapter"
 PEFT_ADAPTER_SHA256 = (
     "617e6e00535fa356272d32fb16d8fe8d451a9c3cfd2f766f56af02cdf2f9b78d"
 )

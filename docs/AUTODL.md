@@ -1,47 +1,33 @@
-# AutoDL Stage 2 SFT
+# AutoDL：SFT 与 GRPO
 
-在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的阶段二 SFT。训练参数、输入哈希、模型
-revision 和验收门槛均由仓库中的冻结配置与执行器校验。
+在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的阶段二 SFT 和阶段三 GRPO。
 
 ## 1. 准备
 
-使用 `PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8` 镜像及其默认 Python，
-不要创建虚拟环境或重装 PyTorch。项目使用 Transformers 的 PyTorch fallback，不安装
-`flash-linear-attention` 和 `causal-conv1d`。
-
-首次部署：
+使用 `PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8` 镜像。使用镜像默认
+Python，不创建虚拟环境或重装 PyTorch。
 
 ```bash
 cd /root/autodl-tmp
 git clone <你的 GitHub 仓库地址> roleplay
 cd roleplay
-
 python -m pip uninstall -y flash-linear-attention causal-conv1d
-python -m pip install --upgrade pip \
-  -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
 python -m pip install \
   -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
   -r requirements/stage2_sft_autodl.txt
 python -m pip install -e .
-
 python -m unittest discover -s tests -v
-roleplay-stage2-sft --help
 ```
 
-后续只需更新代码：
+更新代码：
 
 ```bash
 cd /root/autodl-tmp/roleplay
 git pull --ff-only
+python -m pip install -e .
 ```
 
-CLI 会在训练前检查系统、Python、PyTorch、CUDA、GPU、显存、依赖和 Git 工作区。
-默认使用 `https://hf-mirror.com`，缓存写入 `/root/autodl-tmp/huggingface`；已有的
-`HF_ENDPOINT` 和 `HF_HOME` 不会被覆盖。
-
-## 2. 训练与发布
-
-在 tmux 中运行，避免 SSH 断开中止训练：
+## 2. SFT
 
 ```bash
 tmux new -s roleplay-sft
@@ -49,17 +35,14 @@ cd /root/autodl-tmp/roleplay
 roleplay-stage2-sft run
 ```
 
-按 `Ctrl-B`、`D` 退出，之后用 `tmux attach -t roleplay-sft` 恢复。可在另一终端运行
-`watch -n 2 nvidia-smi` 查看 GPU。
-
-默认产物位于 `output/morgana-v2/stage2-sft/<run-id>/`。训练和自动评测成功后发布：
+按 `Ctrl-B`、`D` 退出 tmux；使用 `tmux attach -t roleplay-sft` 恢复。训练成功后发布：
 
 ```bash
 gh auth login  # 仅首次需要
 roleplay-stage2-sft publish --run-dir output/morgana-v2/stage2-sft/<run-id>
 ```
 
-`publish` 会校验归档并上传 GitHub Release。记下输出的 Release tag，即可释放实例。
+记下输出的 Release tag。
 
 ## 3. 本地复核
 
@@ -70,7 +53,7 @@ python -m pip install -e .
 roleplay-stage2-sft download --tag <Release-tag>
 ```
 
-填写下载目录中的 `manual_review_results.json`，然后执行：
+填写 `manual_review_results.json`，然后执行：
 
 ```bash
 roleplay-stage2-sft review \
@@ -83,10 +66,35 @@ git commit -m "chore: record morgana-v2 SFT review"
 git push
 ```
 
-完整流程为 `run → publish → download → review`。Adapter 不提交到 Git。
-
 ## 4. 失败处理
 
-成功后，临时日志和 checkpoint 会自动删除；训练摘要保存在 `run_summary.json`。失败时，
-完整日志和 checkpoint 留在 `.work/<run-id>` 供现场排查，不上传 GitHub。按需提交失败 run 的
-`run_summary.json` 即可。
+失败现场保存在 `output/morgana-v2/stage2-sft/.work/<run-id>/`，错误摘要保存在对应 run 的
+`run_summary.json`。成功后临时文件自动删除。Adapter 不提交到 Git。
+
+## 5. GRPO
+
+将 Stage 2 adapter 放到固定路径：
+
+```text
+output/morgana-v2/stage2-sft/final/adapter/
+```
+
+运行训练：
+
+```bash
+cd /root/autodl-tmp/roleplay
+python -m pip install -e .
+export DEEPSEEK_API_KEY="<your-key>"
+
+tmux new -s roleplay-grpo
+roleplay-stage3-grpo run
+```
+
+`run` 会自动准备数据、校验 adapter、执行训练并检查奖励日志和新 adapter。
+成功后发布：
+
+```bash
+gh auth login  # 仅首次需要
+roleplay-stage3-grpo publish \
+  --run-dir output/morgana-v2/stage3-grpo/<run-id>
+```
