@@ -6,7 +6,9 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -27,7 +29,9 @@ from roleplay.stage2_sft import (
     download_release,
     ensure_clean_tracked_status,
     extract_release_bundle,
+    format_download_command,
     generate_run_id,
+    main,
     publish_run,
     prune_run_artifacts,
     review_run,
@@ -450,6 +454,35 @@ class FileContractTests(unittest.TestCase):
             self.assertNotIn("--latest=false", command)
             self.assertIn("--target", command)
             self.assertEqual(command[command.index("--target") + 1], "abc123")
+
+    def test_publish_prints_copyable_local_download_command(self):
+        bundle = Path("dist/release.tar.gz")
+        manifest = Path("dist/release.manifest.json")
+        with patch(
+            "roleplay.stage2_sft.publish_run",
+            return_value=(bundle, manifest, "morgana-v2-stage2-sft-run-123"),
+        ):
+            output = StringIO()
+            with redirect_stdout(output):
+                result = main(
+                    ["publish", "--run-dir", "output/run"]
+                )
+
+        self.assertEqual(result, 0)
+        self.assertIn(
+            "本地下载命令: roleplay-stage2-sft download "
+            "--tag morgana-v2-stage2-sft-run-123",
+            output.getvalue(),
+        )
+
+    def test_format_download_command_includes_custom_repository(self):
+        self.assertEqual(
+            format_download_command(
+                "release-123", "example/roleplay"
+            ),
+            "roleplay-stage2-sft download --tag release-123 "
+            "--repo example/roleplay",
+        )
 
     @patch("roleplay.stage2_sft.subprocess.run")
     def test_publish_retry_reuses_bundle_after_upload_failure(self, run_command):

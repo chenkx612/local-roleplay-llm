@@ -12,6 +12,7 @@ import os
 import platform
 import random
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -854,6 +855,16 @@ def publish_run(
     return bundle_path, manifest_path, tag
 
 
+def format_download_command(
+    tag: str, repository: str = DEFAULT_GITHUB_REPOSITORY
+) -> str:
+    """Format the local command for downloading a published release."""
+    command = ["roleplay-stage2-sft", "download", "--tag", tag]
+    if repository != DEFAULT_GITHUB_REPOSITORY:
+        command.extend(["--repo", repository])
+    return shlex.join(command)
+
+
 def extract_release_bundle(
     bundle_path: Path, manifest_path: Path, output_root: Path
 ) -> Path:
@@ -1579,7 +1590,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"GitHub Release: {tag}")
             print(f"发布包: {bundle_path}")
             print(f"清单: {manifest_path}")
-            print("请在本地运行 download，再完成人工复核。")
+            print(f"本地下载命令: {format_download_command(tag, args.repo)}")
+            print("下载完成后再完成人工复核。")
         elif args.command == "download":
             run_dir = download_release(args.tag, args.output_root, args.repo)
             print(f"本地 run 目录: {run_dir}")
