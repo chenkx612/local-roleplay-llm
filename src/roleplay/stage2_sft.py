@@ -39,7 +39,7 @@ from roleplay.sft_eval import (
 
 MODEL_ID = "Qwen/Qwen3.5-2B"
 MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
-CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_sft_t4.yaml")
+CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_sft.yaml")
 DEFAULT_OUTPUT_RELATIVE_PATH = Path("output/morgana-v2/stage2-sft")
 MIN_GPU_MEMORY_GIB = 20.0
 DEFAULT_HF_ENDPOINT = "https://hf-mirror.com"

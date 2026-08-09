@@ -1,7 +1,7 @@
 # AutoDL Stage 2 SFT
 
-在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的第二次 SFT。参数、输入哈希、模型 revision
-和验收门槛与 Colab 方案一致。
+在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的阶段二 SFT。训练参数、输入哈希、模型
+revision 和验收门槛均由仓库中的冻结配置与执行器校验。
 
 ## 1. 准备
 

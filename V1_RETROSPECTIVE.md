@@ -84,7 +84,7 @@ v1 数据和 Teacher rubric 强调固定动作格式、风格、事实/背景约
 说明 optimizer step 实际被非有限梯度跳过。这个结果证明 loss、checkpoint 存在和生成非空都不足以
 验收训练有效性。
 
-后续 notebook 因此增加三项硬检查：`grad_norm` 必须有限且为正、全部 LoRA-B 必须出现非零
+后续训练流程因此增加三项硬检查：`grad_norm` 必须有限且为正、全部 LoRA-B 必须出现非零
 更新、adapter 必须能重新加载生成。
 
 ### 4.2 第二次：解决技术有效性，暴露行为门槛问题
@@ -170,5 +170,3 @@ v2 因此只保留三个递进目标：
 - 第二次 SFT：`output/morgana-v1/stage2-sft/2/`
 - 第三次 SFT：`output/morgana-v1/stage2-sft/3/`
 - v1 问题记录：`ISSUES.md`
-- v1 阶段二执行方案：`STAGE2_COLAB_PLAN.md`
-

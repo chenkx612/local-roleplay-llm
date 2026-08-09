@@ -3,7 +3,7 @@
 ## P0｜第二次 SFT 隐式启用 FP16，梯度溢出（已解决）
 
 **位置：** `output/morgana-v2/stage2-sft/2/run_summary.json`、
-`output/morgana-v2/stage2-sft/2/train.log`、`configs/morgana_v2_sft_t4.yaml`
+`output/morgana-v2/stage2-sft/2/train.log`、`configs/morgana_v2_sft.yaml`
 
 **现象：** AutoDL run 完成 39/39 个记录步，但前 6 个 `grad_norm` 为 `NaN`。流水线正确地
 标记为 `training_failed`，没有把 checkpoint 当作正式 adapter，也没有继续 Dev 推理。
