@@ -17,9 +17,11 @@ from roleplay.stage3_grpo import (
     Stage3GRPOError,
     _load_yaml,
     create_release_bundle,
+    extract_release_bundle,
     main,
     prepare_training_rows,
     publish_run,
+    review_run,
     run_stage3,
     validate_archive_contract,
     validate_reward_samples,
@@ -48,13 +50,18 @@ def make_successful_run(run_dir: Path) -> None:
         "train.jsonl",
         "train.log",
         "reward_samples.jsonl",
+        "sft_dev_outputs.jsonl",
+        "grpo_dev_outputs.jsonl",
+        "manual_review_packet.json",
+        "manual_review_answer_key.json",
+        "manual_review_results.json",
     ):
         (run_dir / name).write_text(name, encoding="utf-8")
     write_json_atomic(
         run_dir / "run_summary.json",
         {
             "schema_version": 1,
-            "status": "grpo_trained",
+            "status": "awaiting_manual_review",
             "run": {"id": "20260809-1800", "commit": "abc123"},
         },
     )
@@ -204,6 +211,31 @@ class RunWorkflowTests(unittest.TestCase):
                 log_path.write_text("trained", encoding="utf-8")
                 return 1.25
 
+            def fake_generate_review(
+                repo_dir, sft_adapter, grpo_adapter, output
+            ):
+                del repo_dir, sft_adapter, grpo_adapter
+                names = (
+                    "sft_dev_outputs.jsonl",
+                    "grpo_dev_outputs.jsonl",
+                    "manual_review_packet.json",
+                    "manual_review_answer_key.json",
+                    "manual_review_results.json",
+                )
+                paths = {}
+                for name in names:
+                    paths[name] = output / name
+                    paths[name].write_text("{}", encoding="utf-8")
+                return {
+                    "paths": paths,
+                    "automatic_gate": {
+                        "passed": True,
+                        "checks": {"complete": True},
+                        "base": {"overall": {"records": 10}},
+                        "sft": {"overall": {"records": 10}},
+                    },
+                }
+
             with (
                 patch("roleplay.stage3_grpo.repository_root", return_value=repo),
                 patch("roleplay.stage3_grpo.generate_run_id", return_value="run-1"),
@@ -247,6 +279,10 @@ class RunWorkflowTests(unittest.TestCase):
                     "roleplay.stage3_grpo.inspect_adapter_change",
                     return_value={"changed_tensors": 1},
                 ),
+                patch(
+                    "roleplay.stage3_grpo.generate_dev_review_artifacts",
+                    side_effect=fake_generate_review,
+                ),
                 patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}),
             ):
                 run_dir = run_stage3(root / "runs")
@@ -259,7 +295,7 @@ class RunWorkflowTests(unittest.TestCase):
             summary = json.loads(
                 (run_dir / "run_summary.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(summary["status"], "grpo_trained")
+            self.assertEqual(summary["status"], "awaiting_manual_review")
             self.assertEqual(summary["reward"]["rows"], 80)
 
 
@@ -305,8 +341,102 @@ class PublicationTests(unittest.TestCase):
             self.assertIn("owner/repo", command)
 
 
+class DownloadTests(unittest.TestCase):
+    def test_extracts_verified_bundle_and_refuses_overwrite(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dir = root / "run"
+            make_successful_run(run_dir)
+            bundle, manifest, _ = create_release_bundle(
+                run_dir, root / "dist"
+            )
+
+            destination = extract_release_bundle(
+                bundle, manifest, root / "downloads"
+            )
+
+            self.assertEqual(destination.name, "20260809-1800")
+            validate_archive_contract(destination)
+            with self.assertRaisesRegex(Stage3GRPOError, "拒绝覆盖"):
+                extract_release_bundle(bundle, manifest, root / "downloads")
+
+
+class ReviewTests(unittest.TestCase):
+    def test_records_passing_manual_review(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary) / "run"
+            run_dir.mkdir()
+            items = [
+                {"review_id": f"dev-review-{index:02d}"}
+                for index in range(1, 11)
+            ]
+            packet = {"items": items}
+            answer_key = {
+                "answers": [
+                    {
+                        "review_id": item["review_id"],
+                        "id": f"dev_{index:04d}",
+                        "sft_label": "A",
+                        "grpo_label": "B",
+                    }
+                    for index, item in enumerate(items, 1)
+                ]
+            }
+            scores = {
+                "A": {
+                    "generation_stability": 8,
+                    "role_consistency": 8,
+                    "dialogue_quality": 8,
+                },
+                "B": {
+                    "generation_stability": 9,
+                    "role_consistency": 9,
+                    "dialogue_quality": 9,
+                },
+            }
+            results = {
+                "results": [
+                    {
+                        "review_id": item["review_id"],
+                        "winner": "B",
+                        "clearly_worse": None,
+                        "scores": scores,
+                        "severe_issues": {"A": [], "B": []},
+                    }
+                    for item in items
+                ]
+            }
+            write_json_atomic(run_dir / "manual_review_packet.json", packet)
+            write_json_atomic(
+                run_dir / "manual_review_answer_key.json", answer_key
+            )
+            write_json_atomic(
+                run_dir / "manual_review_results.json", results
+            )
+            write_json_atomic(
+                run_dir / "run_summary.json",
+                {
+                    "status": "awaiting_manual_review",
+                    "automatic_review": {"passed": True},
+                    "manual_review": {"status": "awaiting_manual_review"},
+                },
+            )
+
+            with redirect_stdout(StringIO()):
+                summary = review_run(run_dir)
+
+            self.assertEqual(summary["status"], "ready_for_eval")
+            self.assertTrue(summary["ready_for_eval"])
+            self.assertEqual(
+                summary["manual_review"]["gate"]["grpo_wins"], 10
+            )
+            self.assertNotIn(
+                "sft_wins", summary["manual_review"]["gate"]
+            )
+
+
 class CliTests(unittest.TestCase):
-    def test_run_and_publish_are_the_only_workflow_commands(self):
+    def test_run_command_reports_publish_readiness(self):
         with patch(
             "roleplay.stage3_grpo.run_stage3", return_value=Path("run")
         ) as run:
@@ -317,6 +447,21 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         run.assert_called_once_with(None)
         self.assertIn("ready_to_publish=True", output.getvalue())
+
+    def test_download_and_review_commands_dispatch(self):
+        with patch(
+            "roleplay.stage3_grpo.download_release",
+            return_value=Path("output/run"),
+        ) as download:
+            with redirect_stdout(StringIO()):
+                result = main(["download", "--tag", "release-1"])
+        self.assertEqual(result, 0)
+        download.assert_called_once()
+
+        with patch("roleplay.stage3_grpo.review_run") as review:
+            result = main(["review", "--run-dir", "output/run"])
+        self.assertEqual(result, 0)
+        review.assert_called_once_with(Path("output/run"))
 
     def test_cli_reports_run_failure_without_traceback(self):
         with patch(

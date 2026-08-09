@@ -19,7 +19,7 @@ python -m pip install -e .
 python -m unittest discover -s tests -v
 ```
 
-更新代码：
+后续重新开机或开始新一轮训练前，先更新代码：
 
 ```bash
 cd /root/autodl-tmp/roleplay
@@ -29,22 +29,28 @@ python -m pip install -e .
 
 ## 2. SFT
 
+### 2.1 运行训练
+
 ```bash
 tmux new -s roleplay-sft
 cd /root/autodl-tmp/roleplay
 roleplay-stage2-sft run
 ```
 
-按 `Ctrl-B`、`D` 退出 tmux；使用 `tmux attach -t roleplay-sft` 恢复。训练成功后发布：
+按 `Ctrl-B`、`D` 退出 tmux；使用 `tmux attach -t roleplay-sft` 恢复。
+
+### 2.2 发布训练产物
+
+训练成功后发布：
 
 ```bash
 gh auth login  # 仅首次需要
 roleplay-stage2-sft publish --run-dir output/morgana-v2/stage2-sft/<run-id>
 ```
 
-记下输出的 Release tag。
+记下输出的 Release tag，供本地复核时下载产物。
 
-## 3. 本地复核
+### 2.3 本地复核
 
 ```bash
 cd /Users/chenkx/roleplay
@@ -66,12 +72,14 @@ git commit -m "chore: record morgana-v2 SFT review"
 git push
 ```
 
-## 4. 失败处理
+### 2.4 失败处理
 
 失败现场保存在 `output/morgana-v2/stage2-sft/.work/<run-id>/`，错误摘要保存在对应 run 的
 `run_summary.json`。成功后临时文件自动删除。Adapter 不提交到 Git。
 
-## 5. GRPO
+## 3. GRPO
+
+### 3.1 准备 SFT adapter
 
 将 Stage 2 adapter 放到固定路径：
 
@@ -79,7 +87,7 @@ git push
 output/morgana-v2/stage2-sft/final/adapter/
 ```
 
-运行训练：
+### 3.2 运行训练
 
 ```bash
 cd /root/autodl-tmp/roleplay
@@ -90,11 +98,38 @@ tmux new -s roleplay-grpo
 roleplay-stage3-grpo run
 ```
 
-`run` 会自动准备数据、校验 adapter、执行训练并检查奖励日志和新 adapter。
-成功后发布：
+`run` 会完成训练检查，并生成 SFT/GRPO Dev 匿名对比材料。
+
+### 3.3 发布训练产物
+
+训练成功后发布：
 
 ```bash
 gh auth login  # 仅首次需要
 roleplay-stage3-grpo publish \
   --run-dir output/morgana-v2/stage3-grpo/<run-id>
+```
+
+记下输出的 Release tag。
+
+### 3.4 本地复核
+
+```bash
+cd /Users/chenkx/roleplay
+git pull --ff-only
+python -m pip install -e .
+roleplay-stage3-grpo download --tag <Release-tag>
+```
+
+根据 `manual_review_packet.json` 填写 `manual_review_results.json`，然后执行：
+
+```bash
+roleplay-stage3-grpo review \
+  --run-dir output/morgana-v2/stage3-grpo/<run-id>
+
+git add -f \
+  output/morgana-v2/stage3-grpo/<run-id>/run_summary.json \
+  output/morgana-v2/stage3-grpo/<run-id>/manual_review_results.json
+git commit -m "chore: record morgana-v2 GRPO review"
+git push
 ```

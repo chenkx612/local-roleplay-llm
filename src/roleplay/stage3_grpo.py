@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
+import random
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -33,12 +38,21 @@ from roleplay.stage2_sft import (
     write_json_atomic,
     write_jsonl_exclusive,
 )
+from roleplay.sft_eval import (
+    EVALUATION_SEEDS,
+    build_manual_review,
+    empty_manual_review_results,
+    evaluate_core_behavior_gate,
+    evaluate_manual_review,
+    normalize_empty_think_wrapper,
+)
 
 
 MODEL_ID = "Qwen/Qwen3.5-2B"
 MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_grpo.yaml")
 PROMPTS_RELATIVE_PATH = Path("data/runs/morgana-v2/rl_train.jsonl")
+DEV_RELATIVE_PATH = Path("data/runs/morgana-v2/dev.jsonl")
 SYSTEM_PROMPT_RELATIVE_PATH = Path(
     "data/runs/morgana-v2/system_prompt.txt"
 )
@@ -48,6 +62,7 @@ SFT_ADAPTER_RELATIVE_PATH = Path(
 DEFAULT_OUTPUT_RELATIVE_PATH = Path("output/morgana-v2/stage3-grpo")
 
 PROMPTS_SHA256 = "b36b4f01f232901ab0b5f6011fa64b66f48e02c75b6b0050035e4caf703e7231"
+DEV_SHA256 = "74cf6d05921155cec5c070ca8a611c7a8e6751b00ca0b77a6f4e9085aeeecb22"
 SYSTEM_PROMPT_SHA256 = (
     "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
 )
@@ -98,6 +113,11 @@ EXPECTED_ARCHIVE_FILES = frozenset(
         "train.jsonl",
         "train.log",
         "reward_samples.jsonl",
+        "sft_dev_outputs.jsonl",
+        "grpo_dev_outputs.jsonl",
+        "manual_review_packet.json",
+        "manual_review_answer_key.json",
+        "manual_review_results.json",
         *(f"adapter/{name}" for name in ADAPTER_FILES),
     }
 )
@@ -220,6 +240,201 @@ def validate_reward_samples(
     }
 
 
+def _records_from_responses(
+    responses: Any, seed: int, dev_rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    if len(responses) != len(dev_rows):
+        raise Stage3GRPOError("Dev 推理输出数量不正确")
+    records = []
+    for source, response in zip(dev_rows, responses, strict=True):
+        choice = response.choices[0]
+        raw_assistant = choice.message.content
+        if not isinstance(raw_assistant, str) or not raw_assistant.strip():
+            raise Stage3GRPOError(f"Dev 推理输出为空: {source['id']}")
+        assistant = normalize_empty_think_wrapper(raw_assistant)
+        if not assistant:
+            raise Stage3GRPOError(f"规范化后输出为空: {source['id']}")
+        records.append(
+            {
+                "seed": seed,
+                "id": source["id"],
+                "scenario": source["scenario"],
+                "target_goals": source["target_goals"],
+                "user": source["user"],
+                "assistant": assistant,
+                "raw_assistant": raw_assistant,
+                "finish_reason": choice.finish_reason,
+                "attempts": 1,
+            }
+        )
+    return records
+
+
+def _grpo_answer_key(answer_key: dict[str, Any]) -> dict[str, Any]:
+    """Rename the generic baseline/candidate key to SFT/GRPO terms."""
+    return {
+        **answer_key,
+        "answers": [
+            {
+                "review_id": row["review_id"],
+                "id": row["id"],
+                "sft_label": row["base_label"],
+                "grpo_label": row["sft_label"],
+            }
+            for row in answer_key["answers"]
+        ],
+    }
+
+
+def _evaluate_grpo_manual_review(
+    packet: dict[str, Any],
+    answer_key: dict[str, Any],
+    results: dict[str, Any],
+) -> dict[str, Any]:
+    """Evaluate the generic A/B gate and expose Stage 3 terminology."""
+    generic_key = {
+        **answer_key,
+        "answers": [
+            {
+                "review_id": row["review_id"],
+                "id": row["id"],
+                "base_label": row["sft_label"],
+                "sft_label": row["grpo_label"],
+            }
+            for row in answer_key["answers"]
+        ],
+    }
+    result = evaluate_manual_review(packet, generic_key, results)
+    renamed = {
+        key: value
+        for key, value in result.items()
+        if not key.startswith("sft_") and key != "mean_scores"
+    }
+    return {
+        **renamed,
+        "checks": {
+            key.replace("sft_", "grpo_", 1): value
+            for key, value in result["checks"].items()
+        },
+        "grpo_wins": result["sft_wins"],
+        "grpo_clear_losses": result["sft_clear_losses"],
+        "grpo_severe_issue_ids": result["sft_severe_issue_ids"],
+        "mean_scores": {
+            "sft": result["mean_scores"]["base"],
+            "grpo": result["mean_scores"]["sft"],
+        },
+    }
+
+
+def generate_dev_review_artifacts(
+    repo_dir: Path,
+    sft_adapter: Path,
+    grpo_adapter: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Generate aligned SFT/GRPO Dev outputs and an anonymous A/B packet."""
+    try:
+        import torch
+        from peft import PeftModel
+        from swift import (
+            InferRequest,
+            RequestConfig,
+            TransformersEngine,
+            get_model_processor,
+            get_template,
+        )
+        from transformers import BitsAndBytesConfig
+    except ImportError as exc:
+        raise Stage3GRPOError(f"缺少 Dev 评估依赖: {exc.name}") from exc
+
+    dev_path = repo_dir / DEV_RELATIVE_PATH
+    validate_frozen_file(dev_path, DEV_SHA256)
+    dev_rows = read_jsonl(dev_path)
+    if len(dev_rows) != 10:
+        raise Stage3GRPOError(f"Dev 数量必须为 10，实际 {len(dev_rows)}")
+    system_prompt = (repo_dir / SYSTEM_PROMPT_RELATIVE_PATH).read_text(
+        encoding="utf-8"
+    )
+    requests = [
+        InferRequest(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": row["user"]},
+            ]
+        )
+        for row in dev_rows
+    ]
+    request_config = RequestConfig(
+        max_tokens=512,
+        temperature=0.6,
+        top_p=0.8,
+        top_k=20,
+        repetition_penalty=1.45,
+    )
+    quantization = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.float32,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True,
+    )
+
+    def infer(adapter: Path) -> list[dict[str, Any]]:
+        model, processor = get_model_processor(
+            MODEL_ID,
+            revision=MODEL_REVISION,
+            torch_dtype=torch.float32,
+            quantization_config=quantization,
+            use_hf=True,
+        )
+        model = PeftModel.from_pretrained(model, adapter)
+        engine = TransformersEngine(
+            model, template=get_template(processor, enable_thinking=False)
+        )
+        records = []
+        for seed in EVALUATION_SEEDS:
+            random.seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            records.extend(
+                _records_from_responses(
+                    engine.infer(requests, request_config=request_config),
+                    seed,
+                    dev_rows,
+                )
+            )
+        del engine, model, processor
+        gc.collect()
+        torch.cuda.empty_cache()
+        return records
+
+    sft_rows = infer(sft_adapter)
+    grpo_rows = infer(grpo_adapter)
+    expected_ids = [row["id"] for row in dev_rows]
+    automatic_gate = evaluate_core_behavior_gate(
+        sft_rows, grpo_rows, EVALUATION_SEEDS, expected_ids
+    )
+    packet, generic_key = build_manual_review(
+        sft_rows, grpo_rows, expected_ids
+    )
+    answer_key = _grpo_answer_key(generic_key)
+    paths = {
+        "sft_dev_outputs.jsonl": output_dir / "sft_dev_outputs.jsonl",
+        "grpo_dev_outputs.jsonl": output_dir / "grpo_dev_outputs.jsonl",
+        "manual_review_packet.json": output_dir / "manual_review_packet.json",
+        "manual_review_answer_key.json": output_dir
+        / "manual_review_answer_key.json",
+        "manual_review_results.json": output_dir / "manual_review_results.json",
+    }
+    write_jsonl_exclusive(paths["sft_dev_outputs.jsonl"], sft_rows)
+    write_jsonl_exclusive(paths["grpo_dev_outputs.jsonl"], grpo_rows)
+    write_json_atomic(paths["manual_review_packet.json"], packet)
+    write_json_atomic(paths["manual_review_answer_key.json"], answer_key)
+    write_json_atomic(
+        paths["manual_review_results.json"], empty_manual_review_results(packet)
+    )
+    return {"paths": paths, "automatic_gate": automatic_gate}
+
+
 def inspect_adapter_change(source_dir: Path, trained_dir: Path) -> dict[str, Any]:
     """Require finite trained LoRA tensors with at least one changed value."""
     try:
@@ -284,8 +499,11 @@ def validate_archive_contract(run_dir: Path) -> None:
     summary = json.loads(
         (run_dir / "run_summary.json").read_text(encoding="utf-8")
     )
-    if summary.get("status") != "grpo_trained":
-        raise Stage3GRPOError("GRPO run 未成功，不能发布")
+    if summary.get("status") not in {
+        "awaiting_manual_review",
+        "automatic_review_failed",
+    }:
+        raise Stage3GRPOError("GRPO run 未完成自动复核，不能发布")
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -351,6 +569,9 @@ def run_stage3(output_root: Path | None = None) -> Path:
             str(PROMPTS_RELATIVE_PATH): validate_frozen_file(
                 prompts_path, PROMPTS_SHA256
             ),
+            str(DEV_RELATIVE_PATH): validate_frozen_file(
+                repo_dir / DEV_RELATIVE_PATH, DEV_SHA256
+            ),
             str(SYSTEM_PROMPT_RELATIVE_PATH): validate_frozen_file(
                 system_path, SYSTEM_PROMPT_SHA256
             ),
@@ -407,6 +628,11 @@ def run_stage3(output_root: Path | None = None) -> Path:
         if not args_path.is_file():
             raise Stage3GRPOError("训练输出缺少 args.json")
 
+        review = generate_dev_review_artifacts(
+            repo_dir, adapter_dir, final_adapter, work_dir
+        )
+        automatic = review["automatic_gate"]
+
         archive_stage = work_dir / "archive"
         archive_stage.mkdir()
         shutil.copy2(
@@ -415,6 +641,8 @@ def run_stage3(output_root: Path | None = None) -> Path:
         shutil.copy2(train_data_path, archive_stage / "train.jsonl")
         shutil.copy2(train_log, archive_stage / "train.log")
         shutil.copy2(reward_path, archive_stage / "reward_samples.jsonl")
+        for name, source in review["paths"].items():
+            shutil.copy2(source, archive_stage / name)
         published_adapter = archive_stage / "adapter"
         published_adapter.mkdir()
         for name in ADAPTER_FILES:
@@ -423,7 +651,11 @@ def run_stage3(output_root: Path | None = None) -> Path:
                 raise Stage3GRPOError(f"训练 adapter 缺少 {name}")
             shutil.copy2(source, published_adapter / name)
 
-        summary["status"] = "grpo_trained"
+        summary["status"] = (
+            "awaiting_manual_review"
+            if automatic["passed"]
+            else "automatic_review_failed"
+        )
         summary["technically_valid"] = True
         summary["ready_to_publish"] = True
         summary["training"].update(
@@ -434,6 +666,23 @@ def run_stage3(output_root: Path | None = None) -> Path:
             }
         )
         summary["reward"] = reward
+        summary["automatic_review"] = {
+            "passed": automatic["passed"],
+            "checks": automatic["checks"],
+            "sft": automatic["base"],
+            "grpo": automatic["sft"],
+        }
+        summary["manual_review"] = {
+            "status": (
+                "awaiting_manual_review"
+                if automatic["passed"]
+                else "not_started_automatic_failed"
+            ),
+            "packet": "manual_review_packet.json",
+            "answer_key": "manual_review_answer_key.json",
+            "results": "manual_review_results.json",
+        }
+        summary["ready_for_eval"] = False
         summary["artifacts"] = {
             relative: _artifact_metadata(
                 archive_stage / relative, archive_stage
@@ -571,6 +820,169 @@ def publish_run(
     return bundle_path, manifest_path, tag
 
 
+def format_download_command(
+    tag: str, repository: str = DEFAULT_GITHUB_REPOSITORY
+) -> str:
+    """Format the copyable local download command."""
+    command = ["roleplay-stage3-grpo", "download", "--tag", tag]
+    if repository != DEFAULT_GITHUB_REPOSITORY:
+        command.extend(["--repo", repository])
+    return shlex.join(command)
+
+
+def extract_release_bundle(
+    bundle_path: Path, manifest_path: Path, output_root: Path
+) -> Path:
+    """Verify and atomically extract one Stage 3 release bundle."""
+    bundle_path = bundle_path.resolve()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("bundle", {}).get("sha256") != sha256_file(bundle_path):
+        raise Stage3GRPOError("下载包 SHA-256 与 manifest 不匹配")
+    run_id = manifest.get("run_id")
+    if not isinstance(run_id, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
+    ):
+        raise Stage3GRPOError("manifest 缺少有效 run_id")
+    contents = manifest.get("contents")
+    if (
+        not isinstance(contents, dict)
+        or set(contents) != EXPECTED_ARCHIVE_FILES
+        or any(not isinstance(metadata, dict) for metadata in contents.values())
+    ):
+        raise Stage3GRPOError("manifest 文件清单不满足 GRPO 归档契约")
+    expected_names = {f"{run_id}/{name}" for name in contents}
+    output_root = output_root.resolve()
+    destination = output_root / run_id
+    if destination.exists():
+        raise Stage3GRPOError(
+            f"本地 run 目录已存在，拒绝覆盖: {destination}"
+        )
+    output_root.mkdir(parents=True, exist_ok=True)
+    staging_root = output_root / f".download-{uuid4().hex}"
+    staging_root.mkdir()
+    try:
+        with tarfile.open(bundle_path, "r:gz") as archive:
+            members = archive.getmembers()
+            if {member.name for member in members} != expected_names or not all(
+                member.isfile() for member in members
+            ):
+                raise Stage3GRPOError("发布包内容与 manifest 不一致")
+            for member in members:
+                target = (staging_root / member.name).resolve()
+                try:
+                    target.relative_to(staging_root)
+                except ValueError as exc:
+                    raise Stage3GRPOError("发布包包含不安全路径") from exc
+                target.parent.mkdir(parents=True, exist_ok=True)
+                source = archive.extractfile(member)
+                if source is None:
+                    raise Stage3GRPOError(f"无法读取发布包文件: {member.name}")
+                with source, target.open("xb") as output_file:
+                    shutil.copyfileobj(source, output_file)
+        staged_run = staging_root / run_id
+        for relative, metadata in contents.items():
+            path = staged_run / relative
+            if (
+                not path.is_file()
+                or path.stat().st_size != metadata.get("bytes")
+                or sha256_file(path) != metadata.get("sha256")
+            ):
+                raise Stage3GRPOError(f"解包文件校验失败: {relative}")
+        staged_run.replace(destination)
+    finally:
+        shutil.rmtree(staging_root, ignore_errors=True)
+    return destination
+
+
+def download_release(
+    tag: str,
+    output_root: Path,
+    repository: str = DEFAULT_GITHUB_REPOSITORY,
+) -> Path:
+    """Download, verify, and extract one Stage 3 GitHub Release."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", tag):
+        raise Stage3GRPOError("release tag 格式无效")
+    with tempfile.TemporaryDirectory() as temporary:
+        download_dir = Path(temporary)
+        try:
+            subprocess.run(
+                [
+                    "gh",
+                    "release",
+                    "download",
+                    tag,
+                    "--repo",
+                    repository,
+                    "--dir",
+                    str(download_dir),
+                ],
+                check=True,
+            )
+        except FileNotFoundError as exc:
+            raise Stage3GRPOError("未安装 GitHub CLI：gh") from exc
+        except subprocess.CalledProcessError as exc:
+            raise Stage3GRPOError(f"GitHub Release 下载失败: {tag}") from exc
+        bundle = download_dir / f"{tag}.tar.gz"
+        manifest = download_dir / f"{tag}.manifest.json"
+        if not bundle.is_file() or not manifest.is_file():
+            raise Stage3GRPOError("Release 缺少发布包或 manifest")
+        return extract_release_bundle(bundle, manifest, output_root)
+
+
+def review_run(run_dir: Path) -> dict[str, Any]:
+    """Validate and record one completed local GRPO manual review."""
+    run_dir = run_dir.resolve()
+    summary_path = run_dir / "run_summary.json"
+    if not summary_path.is_file():
+        raise Stage3GRPOError(f"缺少 run_summary.json: {run_dir}")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    if "manual_reviewed_at_utc" in summary:
+        raise Stage3GRPOError("该 run 已完成人工复核，拒绝重复提交")
+    required = (
+        "manual_review_packet.json",
+        "manual_review_answer_key.json",
+        "manual_review_results.json",
+    )
+    for name in required:
+        if not (run_dir / name).is_file():
+            raise Stage3GRPOError(f"缺少人工复核文件: {name}")
+    submitted = json.loads(
+        (run_dir / "manual_review_results.json").read_text(encoding="utf-8")
+    )
+    if not submitted.get("results"):
+        print("尚未提交人工复核；run_summary 保持不变。")
+        return summary
+    packet = json.loads(
+        (run_dir / "manual_review_packet.json").read_text(encoding="utf-8")
+    )
+    answer_key = json.loads(
+        (run_dir / "manual_review_answer_key.json").read_text(encoding="utf-8")
+    )
+    try:
+        gate = _evaluate_grpo_manual_review(packet, answer_key, submitted)
+    except ValueError as exc:
+        raise Stage3GRPOError(str(exc)) from exc
+    automatic_passed = bool(summary.get("automatic_review", {}).get("passed"))
+    summary["manual_review"] = {
+        **summary.get("manual_review", {}),
+        "status": "passed" if gate["passed"] else "failed",
+        "gate": gate,
+    }
+    summary["ready_for_eval"] = automatic_passed and gate["passed"]
+    summary["status"] = (
+        "ready_for_eval" if summary["ready_for_eval"] else "grpo_failed"
+    )
+    result_path = run_dir / "manual_review_results.json"
+    summary.setdefault("artifacts", {})["manual_review_results.json"] = (
+        _artifact_metadata(result_path, run_dir)
+    )
+    summary["manual_reviewed_at_utc"] = datetime.now(timezone.utc).isoformat()
+    write_json_atomic(summary_path, summary)
+    print(json.dumps(summary["manual_review"], ensure_ascii=False, indent=2))
+    print(f"ready_for_eval={summary['ready_for_eval']}")
+    return summary
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the Stage 3 command-line parser."""
     parser = argparse.ArgumentParser(
@@ -579,6 +991,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     run_parser = subparsers.add_parser("run", help="运行完整 GRPO 训练")
     run_parser.add_argument("--output-root", type=Path)
+    review_parser = subparsers.add_parser(
+        "review", help="提交并验证人工复核结果"
+    )
+    review_parser.add_argument("--run-dir", type=Path, required=True)
     publish_parser = subparsers.add_parser(
         "publish", help="打包并上传到 GitHub Release"
     )
@@ -587,6 +1003,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir", type=Path, default=Path("dist")
     )
     publish_parser.add_argument("--repo", default=DEFAULT_GITHUB_REPOSITORY)
+    download_parser = subparsers.add_parser(
+        "download", help="从 GitHub Release 下载并校验解包"
+    )
+    download_parser.add_argument("--tag", required=True)
+    download_parser.add_argument(
+        "--output-root", type=Path, default=DEFAULT_OUTPUT_RELATIVE_PATH
+    )
+    download_parser.add_argument("--repo", default=DEFAULT_GITHUB_REPOSITORY)
     return parser
 
 
@@ -598,6 +1022,8 @@ def main(argv: list[str] | None = None) -> int:
             run_dir = run_stage3(args.output_root)
             print(f"GRPO run: {run_dir}")
             print("ready_to_publish=True")
+        elif args.command == "review":
+            review_run(args.run_dir)
         elif args.command == "publish":
             bundle, manifest, tag = publish_run(
                 args.run_dir, args.output_dir, args.repo
@@ -605,6 +1031,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"GitHub Release: {tag}")
             print(f"发布包: {bundle}")
             print(f"清单: {manifest}")
+            print(f"本地下载命令: {format_download_command(tag, args.repo)}")
+        elif args.command == "download":
+            run_dir = download_release(args.tag, args.output_root, args.repo)
+            print(f"本地 run 目录: {run_dir}")
+            print("请填写 manual_review_results.json 后运行 review。")
     except (
         Stage2SFTError,
         Stage3GRPOError,
