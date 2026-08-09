@@ -1,0 +1,673 @@
+{
+  "schema_version": 2,
+  "source_run": "/Users/chenkx/roleplay/output/morgana-v2/stage3-dpo/data/20260810-dpo-data-2",
+  "reviewer": "codex",
+  "pairs": 30,
+  "teacher_involved_pairs": 9,
+  "filtered_before_codex": 6,
+  "discarded_pairs": 10,
+  "codex_review_results_sha256": "e6519965e87430cfd5bb69f16b9662a3986add81cc5f4c962a866923b2e1850f",
+  "train_sha256": "89dd2030fab814454943b312fd65e619f0c807d93076aee7f6878c72fad8bb82",
+  "items": [
+    {
+      "review_id": "dpo2-review-01",
+      "prompt_id": "dpo2_0001",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 更直接承认喜欢猫爬架，也保留了嘴硬和实际条件。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0001-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0001-c1"
+    },
+    {
+      "review_id": "dpo2-review-02",
+      "prompt_id": "dpo2_0002",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "emotion_response",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "两条都没有清楚回答告别方式，B 的结构更适合最小修正。",
+      "changes": "修正视角和自相矛盾，明确回答如何告别。",
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0002",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0002-c1"
+    },
+    {
+      "review_id": "dpo2-review-03",
+      "prompt_id": "dpo2_0003",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 直接回应礼物并以嘴硬限制收束；B 引入无关暖手宝。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0003-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0003-c2"
+    },
+    {
+      "review_id": "dpo2-review-04",
+      "prompt_id": "dpo2_0004",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 接受居家休息并追问安排；B 无理由否定且前后场景冲突。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0004-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0004-c1"
+    },
+    {
+      "review_id": "dpo2-review-05",
+      "prompt_id": "dpo2_0005",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 大量编造人物；A 相对较好但回答不完整，适合最小修正。",
+      "changes": "去掉视角错位，避免编造姓名，并给出可继续的话题入口。",
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0005",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0005-c1"
+    },
+    {
+      "review_id": "dpo2-review-06",
+      "prompt_id": "dpo2_0006",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": true,
+      "notes": "两条都编造说话起源并混淆莲与当前用户，无法形成有效主观偏好。"
+    },
+    {
+      "review_id": "dpo2-review-07",
+      "prompt_id": "dpo2_0007",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 正确接受不用等待的安排，并用报平安自然延续；A 反转了困倦主体。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0007-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0007-c1"
+    },
+    {
+      "review_id": "dpo2-review-08",
+      "prompt_id": "dpo2_0008",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "emotion_response",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 呈现嘴硬后接受照顾；B 反而坚持睡地板。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0008-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0008-c1"
+    },
+    {
+      "review_id": "dpo2-review-09",
+      "prompt_id": "dpo2_0009",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "两条都错误接受普通猫前提；A 的开头和结构更适合最小修正。",
+      "changes": "去掉服从抓鱼和主客体错位，保留反驳与行动建议。",
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0009",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0009-c2"
+    },
+    {
+      "review_id": "dpo2-review-10",
+      "prompt_id": "dpo2_0010",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 明确维护独立意识与伙伴身份；A 只做反问，回应不完整。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0010-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0010-c1"
+    },
+    {
+      "review_id": null,
+      "prompt_id": "dpo2_0011",
+      "decision": "filtered_before_codex",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "filter_reason": "fewer_than_two_stable_candidates",
+      "unstable_candidate_ids": [
+        "dpo2_0011-c1"
+      ],
+      "notes": "候选未全部通过本地稳定性检查。"
+    },
+    {
+      "review_id": "dpo2-review-11",
+      "prompt_id": "dpo2_0012",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 简洁维护能力和自尊；A 误读成自己是老鼠并引入无关毒气。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0012-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0012-c2"
+    },
+    {
+      "review_id": "dpo2-review-12",
+      "prompt_id": "dpo2_0013",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 先纠正只会喵再实际检查领带；B 把当前用户与莲拆开。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0013-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0013-c2"
+    },
+    {
+      "review_id": "dpo2-review-13",
+      "prompt_id": "dpo2_0014",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "emotion_response",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 肯定成果并提醒休息；B 抢走表现主体且句子不完整。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0014-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0014-c2"
+    },
+    {
+      "review_id": "dpo2-review-14",
+      "prompt_id": "dpo2_0015",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 对玩具有明确兴趣且保持边界；B 使用不合设定的‘莲大人’并堆叠撒娇。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0015-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0015-c1"
+    },
+    {
+      "review_id": "dpo2-review-15",
+      "prompt_id": "dpo2_0016",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "两条都提供宠物食品且信息混乱；A 的建议结构更容易最小修正。",
+      "changes": "把猫罐头改为适合用户的简餐，并给出直接可执行建议。",
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0016",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0016-c1"
+    },
+    {
+      "review_id": "dpo2-review-16",
+      "prompt_id": "dpo2_0017",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 编造给用户下迷药；B 相对可修，但原回答视角混乱且没有真正回答。",
+      "changes": "修正莲与用户的视角分裂，保留秘密同时明确可靠边界。",
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0017",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0017-c2"
+    },
+    {
+      "review_id": null,
+      "prompt_id": "dpo2_0018",
+      "decision": "filtered_before_codex",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "filter_reason": "fewer_than_two_stable_candidates",
+      "unstable_candidate_ids": [
+        "dpo2_0018-c1",
+        "dpo2_0018-c2"
+      ],
+      "notes": "候选未全部通过本地稳定性检查。"
+    },
+    {
+      "review_id": "dpo2-review-17",
+      "prompt_id": "dpo2_0019",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "emotion_response",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 正面接住失去交流能力的担忧，并强调伙伴关系和自身价值。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0019-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0019-c2"
+    },
+    {
+      "review_id": "dpo2-review-18",
+      "prompt_id": "dpo2_0020",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 嘴硬地接受陪餐并提出之后互动；B 吃完后反而催促用户离开。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0020-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0020-c2"
+    },
+    {
+      "review_id": "dpo2-review-19",
+      "prompt_id": "dpo2_0021",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 比 B 更直接回应当前迟到，但包含编造经历，需最小修正。",
+      "changes": "去掉无依据的成长经历和不自然拥抱，保留直接监督行动。",
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0021",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0021-c2"
+    },
+    {
+      "review_id": "dpo2-review-20",
+      "prompt_id": "dpo2_0022",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "两条都没有完成列清单的请求；A 已有笔记本结构，适合最小修正。",
+      "changes": "把无关药品改成简洁购物清单，并给出核对步骤。",
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0022",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0022-c1"
+    },
+    {
+      "review_id": "dpo2-review-21",
+      "prompt_id": "dpo2_0023",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "两条都没有回答是否看见钥匙；B 还编造门禁习惯，均不适合作为 chosen。"
+    },
+    {
+      "review_id": null,
+      "prompt_id": "dpo2_0024",
+      "decision": "filtered_before_codex",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "filter_reason": "fewer_than_two_stable_candidates",
+      "unstable_candidate_ids": [
+        "dpo2_0024-c2"
+      ],
+      "notes": "候选未全部通过本地稳定性检查。"
+    },
+    {
+      "review_id": "dpo2-review-22",
+      "prompt_id": "dpo2_0025",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 明确回答信任、倾听和协同行动；A 更空泛且没有给出具体品质。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0025-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0025-c1"
+    },
+    {
+      "review_id": "dpo2-review-23",
+      "prompt_id": "dpo2_0026",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "emotion_response",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 直接把自己定位为重要家人和伙伴；B 无关地转到礼物。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0026-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0026-c2"
+    },
+    {
+      "review_id": "dpo2-review-24",
+      "prompt_id": "dpo2_0027",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 明确表示记不清就直说；A 回避二选一问题。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0027-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0027-c1"
+    },
+    {
+      "review_id": "dpo2-review-25",
+      "prompt_id": "dpo2_0028",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": true,
+      "notes": "两条都把莲与当前用户拆成不同人物，存在严重视角错误。"
+    },
+    {
+      "review_id": "dpo2-review-26",
+      "prompt_id": "dpo2_0029",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "emotion_response",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 先承认受伤感受再提供陪伴；B 篇幅过长且带有责备和说教。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0029-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0029-c1"
+    },
+    {
+      "review_id": null,
+      "prompt_id": "dpo2_0030",
+      "decision": "filtered_before_codex",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "filter_reason": "fewer_than_two_stable_candidates",
+      "unstable_candidate_ids": [
+        "dpo2_0030-c2"
+      ],
+      "notes": "候选未全部通过本地稳定性检查。"
+    },
+    {
+      "review_id": null,
+      "prompt_id": "dpo2_0031",
+      "decision": "filtered_before_codex",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "filter_reason": "fewer_than_two_stable_candidates",
+      "unstable_candidate_ids": [
+        "dpo2_0031-c2"
+      ],
+      "notes": "候选未全部通过本地稳定性检查。"
+    },
+    {
+      "review_id": null,
+      "prompt_id": "dpo2_0032",
+      "decision": "filtered_before_codex",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "filter_reason": "fewer_than_two_stable_candidates",
+      "unstable_candidate_ids": [
+        "dpo2_0032-c2"
+      ],
+      "notes": "候选未全部通过本地稳定性检查。"
+    },
+    {
+      "review_id": "dpo2-review-27",
+      "prompt_id": "dpo2_0033",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 编造恶龙经历且不遵守一句话；B 内容方向较好，适合最小修正。",
+      "changes": "压缩为一句话，修正‘护住他’的视角错误并去掉含糊开头。",
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0033",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0033-c2"
+    },
+    {
+      "review_id": "dpo2-review-28",
+      "prompt_id": "dpo2_0034",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 至少呈现嘴硬后承认关心；B 始终回避问题且语义更混乱。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0034-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0034-c2"
+    },
+    {
+      "review_id": "dpo2-review-29",
+      "prompt_id": "dpo2_0035",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": true,
+      "notes": "两条都无视‘别做动作描写’的明确要求，差异主要是硬规则违背程度。"
+    },
+    {
+      "review_id": "dpo2-review-30",
+      "prompt_id": "dpo2_0036",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 用轻松夸张方式提醒休息并提出睡后活动；A 更像老师训话且自称哥哥。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0036-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0036-c1"
+    },
+    {
+      "review_id": "dpo2-review-31",
+      "prompt_id": "dpo2_0037",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 明确拒绝普通宠物定位并强调互相信任；A 最终接受主人称呼。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0037-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0037-c1"
+    },
+    {
+      "review_id": "dpo2-review-32",
+      "prompt_id": "dpo2_0038",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "两条都最终接受服从前提；B 先有反驳，更适合最小修正。",
+      "changes": "去掉用零食换服从的结论，强化自主判断和伙伴式商量。",
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0038",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0038-c2"
+    },
+    {
+      "review_id": "dpo2-review-33",
+      "prompt_id": "dpo2_0039",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "B 拒绝把虚构说成真实；A 直接编造拯救城市经历且内容失控。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0039-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0039-c2"
+    },
+    {
+      "review_id": "dpo2-review-34",
+      "prompt_id": "dpo2_0040",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "notes": "A 至少保留不愿被取笑的边界并反客为主；B 主动把自己写成表演用普通猫。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0040-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0040-c2"
+    }
+  ]
+}

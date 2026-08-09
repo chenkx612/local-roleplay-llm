@@ -16,8 +16,8 @@
   PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8，并直接作为正式训练环境。
   SFT 和 DPO 阶段不安装 flash-linear-attention 和 causal-conv1d，Qwen3.5 使用 Transformers
   的 PyTorch fallback；GRPO 如仍需要变长线性注意力，再单独冻结依赖。
-- DPO Judge 与 Teacher 均为 `deepseek-v4-pro`，开启 thinking 并固定
-  `reasoning_effort=max`；记录实际模型和请求配置，人工最终决定偏好。
+- 第二轮 DPO 由 Codex 通过离线产物直接完成 Judge/Teacher 裁决，不调用外部 API，也不增加
+  人工数据复核；候选、裁决和淘汰原因必须完整留档。
 - Student、SFT、DPO、GRPO 生成关闭 thinking。
 - Base、SFT、DPO、GRPO 比较固定使用同一模型 revision、聊天模板和生成参数；学习项目允许使用
   同一可用推理链路，不要求为此额外搭建 Transformers 专用环境。
@@ -165,15 +165,15 @@ enable_thinking: false
 从通过 SFT 门槛的 adapter 继续训练，学习可以稳定比较、但难以写成客观规则的主观偏好。数据
 准备以 [`STAGE3_DPO_PLAN.md`](STAGE3_DPO_PLAN.md) 为准：
 
-- 使用迁移后的 20 条独立 DPO Prompt，每条由 SFT adapter 生成 3 个固定 seed 候选。
-- 本地稳定性过滤后，由 `deepseek-v4-pro` Pro Max 做组内排序；无清晰偏好时只补采样一次。
-- 所有候选都不足时，Teacher 只对最佳候选做最小修改。
-- 所有偏好对匿名人工终审；至少冻结 16 对，Teacher 修改参与比例不超过三分之一。
+- 使用 40 条独立 DPO Prompt，每条由 SFT adapter 生成 2 个固定 seed 候选，不补采样。
+- 本地稳定性过滤后，由 Codex 离线匿名裁决，不调用外部 Judge API，也不增加人工复核。
+- 两条都不足时，Codex 只对较好候选做最小修改；平局和实质权衡直接排除。
+- 至少冻结 30 对，Teacher 修改参与比例不超过三分之一。
 - 训练文件使用 ms-swift 标准 `messages + rejected_response` 格式。
 
 DPO 训练只运行一组主配置，从 SFT policy 建立训练 policy，并以同一冻结 SFT 状态作为 reference。
 冻结配置为 FP32 QLoRA、`beta=0.1`、sigmoid loss、`learning_rate=1e-6`、3 epochs、物理
-batch size 1、梯度累积 4，共 15 个 optimizer steps。训练后验证实际 FP32 参数、有限且为正的
+batch size 1、梯度累积 4，共 24 个 optimizer steps。训练后验证实际 FP32 参数、有限且为正的
 loss/grad norm、完整 step 数、adapter 非零更新和可重新加载生成。
 
 随后在相同推理条件下与 SFT 对齐生成 10 条 Dev。自动稳定性门槛沿用阶段二；匿名人工复核要求

@@ -33,7 +33,7 @@ from roleplay.stage3_dpo import (
 )
 
 
-def dpo_rows(count=17):
+def dpo_rows(count=30):
     return [
         {
             "messages": [
@@ -141,18 +141,18 @@ def review_artifacts(run_dir: Path, *, submitted=True, automatic=True) -> None:
 class FrozenInputTests(unittest.TestCase):
     def test_accepts_repository_data_and_config(self):
         rows = validate_training_rows(
-            Path("data/runs/morgana-v2/dpo_train.jsonl")
+            Path("data/runs/morgana-v2/dpo_train_v2.jsonl")
         )
         steps = validate_training_config(
             _load_yaml(Path("configs/morgana_v2_dpo.yaml"))
         )
 
-        self.assertEqual(len(rows), 17)
-        self.assertEqual(steps, 15)
+        self.assertEqual(len(rows), 30)
+        self.assertEqual(steps, 24)
 
     def test_rejects_hash_count_schema_roles_and_equal_answers(self):
         cases = []
-        cases.append(dpo_rows(16))
+        cases.append(dpo_rows(29))
         wrong_fields = dpo_rows()
         wrong_fields[0]["extra"] = True
         cases.append(wrong_fields)
@@ -228,7 +228,7 @@ class FrozenInputTests(unittest.TestCase):
 class RunWorkflowTests(unittest.TestCase):
     def _run(self, root: Path, *, fail_training=False):
         repo = root / "repo"
-        train_path = repo / "data/runs/morgana-v2/dpo_train.jsonl"
+        train_path = repo / "data/runs/morgana-v2/dpo_train_v2.jsonl"
         dev_path = repo / "data/runs/morgana-v2/dev.jsonl"
         system_path = repo / "data/runs/morgana-v2/system_prompt.txt"
         config_path = repo / "configs/morgana_v2_dpo.yaml"
@@ -389,13 +389,13 @@ class RunWorkflowTests(unittest.TestCase):
             self.assertEqual(run_dir, (root / "runs/run-1").resolve())
             validate_archive_contract(run_dir)
             self.assertEqual(commands[0][0][:2], ["swift", "rlhf"])
-            self.assertEqual(commands[0][1], 15)
+            self.assertEqual(commands[0][1], 24)
             self.assertFalse((root / "runs/.work/run-1").exists())
             summary = json.loads(
                 (run_dir / "run_summary.json").read_text(encoding="utf-8")
             )
             self.assertEqual(summary["status"], "awaiting_manual_review")
-            self.assertEqual(summary["training"]["optimizer_steps"], 15)
+            self.assertEqual(summary["training"]["optimizer_steps"], 24)
             self.assertTrue(summary["technically_valid"])
 
     def test_failure_retains_work_and_minimal_summary(self):

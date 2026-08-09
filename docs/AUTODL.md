@@ -104,15 +104,14 @@ tmux new -s roleplay-dpo
 roleplay-stage3-dpo run
 ```
 
-`run` 会校验冻结的 17 对偏好数据、SFT adapter、AutoDL 环境和 DPO 配置，完成 15 个
+`run` 会校验冻结的 30 对偏好数据、SFT adapter、AutoDL 环境和 DPO 配置，完成 24 个
 optimizer steps，并生成 SFT/DPO Dev 匿名对比材料。
 
 ### 3.3 发布训练产物
 
 ```bash
 gh auth login  # 仅首次需要
-roleplay-stage3-dpo publish \
-  --run-dir output/morgana-v2/stage3-dpo/<run-id>
+roleplay-stage3-dpo publish --run-dir output/morgana-v2/stage3-dpo/<run-id>
 ```
 
 记下输出的 Release tag。
@@ -129,8 +128,7 @@ roleplay-stage3-dpo download --tag <Release-tag>
 根据 `manual_review_packet.json` 填写 `manual_review_results.json`，然后执行：
 
 ```bash
-roleplay-stage3-dpo review \
-  --run-dir output/morgana-v2/stage3-dpo/<run-id>
+roleplay-stage3-dpo review --run-dir output/morgana-v2/stage3-dpo/<run-id>
 
 git add -f \
   output/morgana-v2/stage3-dpo/<run-id>/run_summary.json \

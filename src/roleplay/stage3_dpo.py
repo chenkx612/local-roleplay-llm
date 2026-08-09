@@ -54,7 +54,7 @@ from roleplay.stage2_sft import (
 MODEL_ID = "Qwen/Qwen3.5-2B"
 MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_dpo.yaml")
-TRAIN_RELATIVE_PATH = Path("data/runs/morgana-v2/dpo_train.jsonl")
+TRAIN_RELATIVE_PATH = Path("data/runs/morgana-v2/dpo_train_v2.jsonl")
 DEV_RELATIVE_PATH = Path("data/runs/morgana-v2/dev.jsonl")
 SYSTEM_PROMPT_RELATIVE_PATH = Path("data/runs/morgana-v2/system_prompt.txt")
 SFT_ADAPTER_RELATIVE_PATH = Path(
@@ -62,7 +62,7 @@ SFT_ADAPTER_RELATIVE_PATH = Path(
 )
 DEFAULT_OUTPUT_RELATIVE_PATH = Path("output/morgana-v2/stage3-dpo")
 
-TRAIN_SHA256 = "f1db4c30506fa704ac2366ec945a9f0b1302910bf41b667921a2d7f1ce9ae4f9"
+TRAIN_SHA256 = "89dd2030fab814454943b312fd65e619f0c807d93076aee7f6878c72fad8bb82"
 DEV_SHA256 = "74cf6d05921155cec5c070ca8a611c7a8e6751b00ca0b77a6f4e9085aeeecb22"
 SYSTEM_PROMPT_SHA256 = (
     "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
@@ -167,11 +167,11 @@ def validate_sft_adapter(adapter_dir: Path) -> dict[str, str]:
 
 
 def validate_training_rows(path: Path) -> list[dict[str, Any]]:
-    """Require the frozen 17-pair ms-swift DPO dataset."""
+    """Require the frozen 30-pair ms-swift DPO v2 dataset."""
     validate_frozen_file(path, TRAIN_SHA256)
     rows = read_jsonl(path)
-    if len(rows) != 17:
-        raise Stage3DPOError(f"DPO 偏好对必须为 17，实际 {len(rows)}")
+    if len(rows) != 30:
+        raise Stage3DPOError(f"DPO 偏好对必须为 30，实际 {len(rows)}")
     for index, row in enumerate(rows, 1):
         if set(row) != {"messages", "rejected_response"}:
             raise Stage3DPOError(f"DPO 第 {index} 条字段不正确")
@@ -217,14 +217,14 @@ def validate_training_config(config: dict[str, Any]) -> int:
         raise Stage3DPOError("DPO 冻结配置不正确: " + ", ".join(mismatches))
     planned_steps = (
         math.ceil(
-            math.ceil(17 / config["per_device_train_batch_size"])
+            math.ceil(30 / config["per_device_train_batch_size"])
             / config["gradient_accumulation_steps"]
         )
         * config["num_train_epochs"]
     )
-    if planned_steps != 15:
+    if planned_steps != 24:
         raise Stage3DPOError(
-            f"DPO 预期 optimizer steps 不再是 15: {planned_steps}"
+            f"DPO 预期 optimizer steps 不再是 24: {planned_steps}"
         )
     return planned_steps
 
