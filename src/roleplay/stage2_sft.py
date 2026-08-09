@@ -264,6 +264,14 @@ def capture_environment() -> tuple[dict[str, Any], Any]:
     return snapshot, torch
 
 
+def _format_environment_status(snapshot: dict[str, Any]) -> str:
+    """Format the validated environment snapshot for the startup log."""
+    return (
+        f"GPU {snapshot['gpu']} | "
+        f"显存 {snapshot['gpu_memory_gib']:.1f} GiB"
+    )
+
+
 def validate_pinned_packages() -> dict[str, str]:
     """Require the direct training dependencies to match the frozen versions."""
     disabled = {}
@@ -997,8 +1005,7 @@ def run_stage2(output_root: Path | None = None) -> Path:
     git = git_context(repo_dir)
     print(
         "[1/5] 环境正常 | "
-        f"GPU {environment_snapshot['gpu_name']} | "
-        f"显存 {environment_snapshot['gpu_memory_gib']:.1f} GiB"
+        + _format_environment_status(environment_snapshot)
     )
 
     run_id = (

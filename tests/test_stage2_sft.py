@@ -18,6 +18,7 @@ from roleplay.stage2_sft import (
     LOCAL_ONLY_ARCHIVE_FILES,
     PINNED_PACKAGES,
     Stage2SFTError,
+    _format_environment_status,
     _record_failure,
     configure_huggingface_environment,
     create_release_bundle,
@@ -124,6 +125,14 @@ def make_review_files(run_dir: Path, *, passing: bool, empty: bool = False):
 
 
 class EnvironmentValidationTests(unittest.TestCase):
+    def test_formats_captured_gpu_field_for_startup_log(self):
+        environment = make_environment(gpu="NVIDIA GeForce RTX 4090")
+
+        self.assertEqual(
+            _format_environment_status(environment),
+            "GPU NVIDIA GeForce RTX 4090 | 显存 23.7 GiB",
+        )
+
     def test_configures_autodl_huggingface_defaults(self):
         environment = {}
 
