@@ -1,5 +1,8 @@
 # 阶段三：GRPO 奖励规约
 
+> **历史文档：** 本规约对应已经失败并封存的旧版主观 Judge GRPO，不再用于当前 DPO 或未来
+> 规则型 GRPO。当前阶段三见 [`STAGE3_DPO_PLAN.md`](STAGE3_DPO_PLAN.md)。
+
 本文定义 `morgana-v2` 阶段三的奖励计算、Judge 运行方式和校准门槛。训练流程见
 [`STAGE3_GRPO_PLAN.md`](STAGE3_GRPO_PLAN.md)。
 

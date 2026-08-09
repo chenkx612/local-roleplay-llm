@@ -1,5 +1,9 @@
 # 阶段三：GRPO 最小执行计划
 
+> **历史文档：** 本方案属于旧版 `SFT → 主观 Judge GRPO` 流程。正式运行已失败并封存，不再
+> 作为当前训练链路或未来规则型 GRPO 的设计依据。当前阶段三见
+> [`STAGE3_DPO_PLAN.md`](STAGE3_DPO_PLAN.md)；未来阶段四 GRPO 将使用独立的规则型 Prompt。
+
 ## 1. 目标
 
 从已通过阶段二验收的 SFT adapter 继续训练，用最小规模验证 GRPO 能否进一步改善角色一致性和

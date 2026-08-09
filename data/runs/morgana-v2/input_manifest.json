@@ -11,14 +11,49 @@
     "file": "system_prompt.txt",
     "sha256": "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
   },
-  "schema_version": 1,
-  "stage": "1.2_data_specs_and_splits",
+  "schema_version": 3,
+  "stage": "3_dpo_dataset_frozen",
   "data": {
     "targets": {
       "sft": 50,
+      "dpo": 20,
       "grpo": 20,
       "dev": 10,
       "eval": 20
+    },
+    "active_splits": {
+      "sft": "sft_train_prompts.jsonl",
+      "dpo": "dpo_prompts.jsonl",
+      "grpo": null,
+      "dev": "dev.jsonl",
+      "eval": "eval.jsonl"
+    },
+    "dpo_migration": {
+      "source_file": "rl_train.jsonl",
+      "source_sha256": "b36b4f01f232901ab0b5f6011fa64b66f48e02c75b6b0050035e4caf703e7231",
+      "target_file": "dpo_prompts.jsonl",
+      "target_sha256": "1691df865f2f16b3fb420b9846fefee3e6e41962f25c8d7ac2ca5af1a62e0c39",
+      "transform": "preserve order and content; rename grpo_NNNN ids to dpo_NNNN"
+    },
+    "dpo_final": {
+      "source_run_id": "20260809-dpo-data-1",
+      "review_packet_sha256": "abb2cb5671068e24f28680b3bd1d009518a5b07ade13ffef9e9346532a1fb7ca",
+      "manual_review_results_sha256": "85454bb400a2654317b0b41296e8c2f98301ffef620b90297410c3abaec16c53",
+      "train_file": "dpo_train.jsonl",
+      "train_sha256": "f1db4c30506fa704ac2366ec945a9f0b1302910bf41b667921a2d7f1ce9ae4f9",
+      "pairs": 17,
+      "teacher_involved_pairs": 1,
+      "excluded_review_ids": [
+        "dpo-review-01",
+        "dpo-review-06",
+        "dpo-review-13"
+      ],
+      "audit_file": "dpo_train_audit.json",
+      "audit_sha256": "86fc04383992094677c271b7e5ef7172100d6c5f1e9bac7abd870fa411864ee8"
+    },
+    "legacy_split": {
+      "file": "rl_train.jsonl",
+      "purpose": "failed subjective-Judge Stage 3 GRPO historical input; inactive"
     },
     "candidate_pool_size": 100,
     "initial_candidate_target": 125,
@@ -38,7 +73,7 @@
           "style": 10,
           "adversarial": 10
         },
-        "grpo": {
+        "dpo": {
           "daily": 4,
           "background": 4,
           "emotion": 4,
@@ -63,8 +98,9 @@
     }
   },
   "split": {
-    "method": "shared_candidate_pool_then_seeded_per_scenario_split",
+    "method": "original shared pool; former grpo split migrated intact to dpo",
     "seed": 20260806,
+    "future_grpo": "generate a separate rule-focused split and deduplicate it against all active splits",
     "deduplication": {
       "scope": "global_candidate_pool",
       "match_type": "exact_after_normalization_and_near_duplicate_ratio",

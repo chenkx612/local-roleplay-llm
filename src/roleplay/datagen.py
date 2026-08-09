@@ -1,4 +1,4 @@
-"""Generate frozen SFT, GRPO, dev and evaluation prompts with DeepSeek.
+"""Generate frozen SFT, DPO, dev and evaluation prompts with DeepSeek.
 
 The teacher is prompted with the validated persona and a few in-character examples,
 then asked to emit user prompts covering the three layered role-play goals and five
@@ -10,7 +10,7 @@ scenario types required by docs/PLAN.md §3.2:
     4. 语言风格
     5. 出戏与冲突
 
-The MVP target size is intentionally small: 50 SFT / 20 GRPO / 10 dev /
+The MVP target size is intentionally small: 50 SFT / 20 DPO / 10 dev /
 20 eval prompts. Prompt generation uses one reasoning-enabled oversampled batch
 per scenario, then filters and backfills locally before the seeded split.
 
@@ -60,8 +60,8 @@ _load_dotenv()
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 
-MVP_TARGETS: dict[str, int] = {"sft": 50, "grpo": 20, "dev": 10, "eval": 20}
-SPLIT_ORDER: tuple[str, ...] = ("sft", "grpo", "dev", "eval")
+MVP_TARGETS: dict[str, int] = {"sft": 50, "dpo": 20, "dev": 10, "eval": 20}
+SPLIT_ORDER: tuple[str, ...] = ("sft", "dpo", "dev", "eval")
 DEFAULT_SPLIT_SEED = 20260806
 PROMPT_GENERATION_TEMPERATURE: float | None = None
 PROMPT_GENERATION_THINKING_TYPE = "enabled"
@@ -1029,7 +1029,7 @@ def generate(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     sft_path = output_dir / "sft_train_prompts.jsonl"
-    rl_path = output_dir / "rl_train.jsonl"
+    dpo_path = output_dir / "dpo_prompts.jsonl"
     dev_path = output_dir / "dev.jsonl"
     eval_path = output_dir / "eval.jsonl"
     snapshot_contents, snapshot_paths = _input_snapshot_bundle(
@@ -1045,7 +1045,7 @@ def generate(
     write_file_bundle(
         {
             sft_path: _jsonl_bytes(format_prompt_records(splits["sft"], "sft")),
-            rl_path: _jsonl_bytes(format_prompt_records(splits["grpo"], "grpo")),
+            dpo_path: _jsonl_bytes(format_prompt_records(splits["dpo"], "dpo")),
             dev_path: _jsonl_bytes(format_prompt_records(splits["dev"], "dev")),
             eval_path: _jsonl_bytes(format_prompt_records(splits["eval"], "eval")),
             **snapshot_contents,
@@ -1055,17 +1055,17 @@ def generate(
     print(f"=== 生成完成 ===")
     print(f"候选池     ：{len(candidate_pool)} 条，split seed={split_seed}")
     print(f"SFT Prompt ：{len(splits['sft'])} 条 -> {sft_path}")
-    print(f"GRPO Prompt：{len(splits['grpo'])} 条 -> {rl_path}")
+    print(f"DPO Prompt ：{len(splits['dpo'])} 条 -> {dpo_path}")
     print(f"Dev Prompt ：{len(splits['dev'])} 条 -> {dev_path}")
     print(f"Eval Prompt：{len(splits['eval'])} 条 -> {eval_path}")
     print(f"输入快照   ：{snapshot_paths['persona'].parent}")
     print(f"System Prompt：{snapshot_paths['system_prompt']}")
-    return {"sft": sft_path, "rl": rl_path, "dev": dev_path, "eval": eval_path}
+    return {"sft": sft_path, "dpo": dpo_path, "dev": dev_path, "eval": eval_path}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="生成并冻结 SFT/GRPO/Dev/Eval Prompt split（DeepSeek API）"
+        description="生成并冻结 SFT/DPO/Dev/Eval Prompt split（DeepSeek API）"
     )
     parser.add_argument(
         "--persona",

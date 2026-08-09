@@ -4,7 +4,8 @@
 
 - [训练计划](PLAN.md)
 - [v2 执行规约](V2_EXECUTION_SPEC.md)
-- [阶段三 GRPO 计划](STAGE3_GRPO_PLAN.md)
+- [阶段三 DPO 计划](STAGE3_DPO_PLAN.md)
+- [旧版阶段三 GRPO 计划（历史失败）](STAGE3_GRPO_PLAN.md)
 - [AutoDL SFT 指南](AUTODL.md)
 
 ## 记录与复盘

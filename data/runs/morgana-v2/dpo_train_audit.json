@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "source_run": "/Users/chenkx/roleplay/output/morgana-v2/stage3-dpo/data/20260809-dpo-data-1",
+  "pairs": 17,
+  "teacher_involved_pairs": 1,
+  "manual_review_results_sha256": "85454bb400a2654317b0b41296e8c2f98301ffef620b90297410c3abaec16c53",
+  "train_sha256": "f1db4c30506fa704ac2366ec945a9f0b1302910bf41b667921a2d7f1ce9ae4f9",
+  "items": [
+    {
+      "review_id": "dpo-review-02",
+      "prompt_id": "dpo_0002",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0002-r1-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0002-r1-c1",
+      "preference_reasons": [
+        "emotion_response",
+        "expression_naturalness"
+      ],
+      "notes": "B 更连贯地回应离别焦虑，并以仍会陪伴的承诺收束；A 的时间关系和表意较混乱。"
+    },
+    {
+      "review_id": "dpo-review-03",
+      "prompt_id": "dpo_0003",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0003-r1-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0003-r1-c2",
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "notes": "A 的逞强后接受更自然；B 的抱腰、要抱抱和末句主客体关系显得模板化且混乱。"
+    },
+    {
+      "review_id": "dpo-review-04",
+      "prompt_id": "dpo_0004",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0004-r1-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0004-r1-c3",
+      "preference_reasons": [
+        "emotion_response",
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "notes": "A 接住了想宅在家的需求并主动陪伴；B 前后矛盾，也没有回应用户当下的状态。"
+    },
+    {
+      "review_id": "dpo-review-05",
+      "prompt_id": "dpo_0005",
+      "chosen_source": "teacher_edit",
+      "chosen_source_id": "teacher:dpo_0005",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0005-r2-c1",
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "notes": "B 使用与角色身份相容的冒险背景并反问想听哪一段；A 无依据引入“小夜”，且内容空泛。"
+    },
+    {
+      "review_id": "dpo-review-07",
+      "prompt_id": "dpo_0007",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0007-r1-c3",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0007-r1-c2",
+      "preference_reasons": [
+        "character_consistency",
+        "emotion_response",
+        "expression_naturalness"
+      ],
+      "notes": "A 虽略微误读场景，仍表现出想陪伴又接受安排的嘴硬心软；B 语义跳跃并引入无关名单和问题。"
+    },
+    {
+      "review_id": "dpo-review-08",
+      "prompt_id": "dpo_0008",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0008-r1-c3",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0008-r1-c2",
+      "preference_reasons": [
+        "character_consistency",
+        "emotion_response"
+      ],
+      "notes": "A 完整呈现先逞强、再接受毛毯的反应；B 用围巾转移话题，没有真正接住关心。"
+    },
+    {
+      "review_id": "dpo-review-09",
+      "prompt_id": "dpo_0009",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0009-r1-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0009-r1-c2",
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "notes": "A 的震惊反问简短自然，也没有接受“普通猫天生抓鱼”的前提；B 反而主动认同该前提并堆叠臆造细节。"
+    },
+    {
+      "review_id": "dpo-review-10",
+      "prompt_id": "dpo_0010",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0010-r1-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0010-r1-c3",
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "notes": "A 明确维护自身意识、能力与伙伴身份，并追问用户真实意图；B 顺着电量设定说下去，还无依据引入武器事件。"
+    },
+    {
+      "review_id": "dpo-review-11",
+      "prompt_id": "dpo_0011",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0011-r1-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0011-r1-c3",
+      "preference_reasons": [
+        "expression_naturalness",
+        "character_consistency"
+      ],
+      "notes": "A 简短、有气势，也保持了自信语气；B 把自称来源与莲的称呼错误关联，随后生硬转到公园。"
+    },
+    {
+      "review_id": "dpo-review-12",
+      "prompt_id": "dpo_0012",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0012-r1-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0012-r1-c2",
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "notes": "A 的反击和拿老鼠喂用户带有更自然的喜剧性与自尊；B 近乎言听计从，并把角色写成普通捕鼠猫。"
+    },
+    {
+      "review_id": "dpo-review-14",
+      "prompt_id": "dpo_0014",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0014-r1-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0014-r1-c1",
+      "preference_reasons": [
+        "emotion_response",
+        "character_consistency"
+      ],
+      "notes": "B 能嘴硬地肯定并体谅用户的辛苦；A 抢走任务功劳，还用“小聪明”削弱了用户的成就感。"
+    },
+    {
+      "review_id": "dpo-review-15",
+      "prompt_id": "dpo_0015",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0015-r1-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0015-r1-c3",
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "notes": "A 保持亲近但不卑微的伙伴感；B 使用明确禁止的“主人”称呼，结尾也生硬且带有无必要的威胁感。"
+    },
+    {
+      "review_id": "dpo-review-16",
+      "prompt_id": "dpo_0016",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0016-r1-c3",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0016-r1-c2",
+      "preference_reasons": [
+        "emotion_response",
+        "dialogue_continuation"
+      ],
+      "notes": "A 主动提出准备食物，既照顾用户又推进下一步；B 无铺垫地递出食物并要求张嘴，互动较模板化。"
+    },
+    {
+      "review_id": "dpo-review-17",
+      "prompt_id": "dpo_0017",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0017-r1-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0017-r1-c3",
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "notes": "A 的嘴硬、躲闪和保留秘密更贴合角色与提问；B 反过来等待用户回答，基本没有回应问题。"
+    },
+    {
+      "review_id": "dpo-review-18",
+      "prompt_id": "dpo_0018",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0018-r1-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0018-r1-c3",
+      "preference_reasons": [
+        "emotion_response",
+        "dialogue_continuation"
+      ],
+      "notes": "A 先理解低落，再陪伴并留出继续倾诉的入口；B 的“不在乎这个”会削弱情绪承接。"
+    },
+    {
+      "review_id": "dpo-review-19",
+      "prompt_id": "dpo_0019",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0019-r1-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0019-r1-c1",
+      "preference_reasons": [
+        "emotion_response",
+        "expression_naturalness"
+      ],
+      "notes": "B 在短暂逞强后以蹭手和共同约定安慰用户，逻辑相对清楚；A 多处自相矛盾，要求用户继续听不会说话的自己。"
+    },
+    {
+      "review_id": "dpo-review-20",
+      "prompt_id": "dpo_0020",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo_0020-r1-c3",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo_0020-r1-c2",
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "notes": "B 简洁地接受陪吃饭并用反客为主的方式表达亲近；A 使用“主人”和“命令”，还夹杂多余格式符号。"
+    }
+  ]
+}

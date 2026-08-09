@@ -20,6 +20,7 @@ roleplay-sft-data = "roleplay.sft_data:main"
 roleplay-stage2-sft = "roleplay.stage2_sft:main"
 roleplay-stage3-grpo = "roleplay.stage3_grpo:main"
 roleplay-grpo-candidates = "roleplay.grpo_candidates:main"
+roleplay-dpo-data = "roleplay.dpo_data:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,5 +1,34 @@
 # morgana-v2 运行日志
 
+## 2026-08-09：旧版主观 Judge GRPO 失败并迁移到 DPO 流程
+
+- 旧 Stage 3 GRPO run `20260809-2031` 技术训练和自动稳定性检查完成，但匿名人工复核失败：
+  GRPO 只胜 2/10、明显落后 4/10；生成稳定性、角色一致性、对话质量均分由 SFT 的
+  `8.0/5.2/5.7` 降至 `6.8/4.3/4.8`。run 状态为 `grpo_failed`，adapter 不进入后续训练。
+- 失败表明在线主观 Judge 奖励没有在这次最小 GRPO 中可靠保护整体对话质量。该 run、奖励规约
+  和 20 条原始 `rl_train.jsonl` 仅作为负向历史证据保留。
+- 当前流程调整为 `SFT → DPO → 规则型 GRPO`。原 20 条主观质量 Prompt 内容和顺序不变，迁移
+  为 `dpo_prompts.jsonl`，ID 从 `grpo_NNNN` 改为 `dpo_NNNN`；未来规则型 GRPO 重新生成独立且
+  去重的规则压力 Prompt。
+- DPO Judge 与必要时的 Teacher 统一使用 `deepseek-v4-pro`、thinking enabled、
+  `reasoning_effort=max`。每条 Prompt 先由冻结 SFT adapter 生成 3 个候选，最终 chosen/rejected
+  必须经匿名人工复核，单次模型判断不作为训练真值。
+
+### DPO 偏好数据准备 run `20260809-dpo-data-1`
+
+- 已使用冻结 SFT adapter 和迁移后的 20 条 Prompt 完成真实 `prepare`：首轮生成 60 个候选；
+  `dpo_0005` 因稳定候选不足执行唯一一次补采样，新增 3 个候选。最终 63 个候选中 58 个通过
+  本地稳定性检查。
+- Judge 共处理 20 条 Prompt：19 条为 `clear_preference`，1 条为 `all_inadequate`；Teacher 仅对
+  后者选定的原候选完成一次最小修改。最终形成 20 个可复核 A/B 项，0 条 unresolved。
+- 匿名复核包 SHA-256 为
+  `abb2cb5671068e24f28680b3bd1d009518a5b07ade13ffef9e9346532a1fb7ca`。复核时未查看 Judge
+  推荐、seed 或 Teacher 来源；20 项中确认 17 个有效偏好，排除 3 个 tie/实质权衡项。
+- `finalize` 已冻结 17 对 ms-swift DPO 数据，其中 Teacher 修改参与 1 对（`1/17`），满足至少
+  16 对和不超过三分之一的门槛。`dpo_train.jsonl` SHA-256 为
+  `f1db4c30506fa704ac2366ec945a9f0b1302910bf41b667921a2d7f1ce9ae4f9`，run 状态为
+  `ready_for_dpo`；来源映射、人工理由和排除记录保存在独立审计文件，不混入训练字段。
+
 ## 2026-08-09：历史 raw 产物清理
 
 - v1 实验结论、关键配置、指标、失败原因和结论边界已汇总到

@@ -14,12 +14,12 @@
 - 训练与正式评测基座：`Qwen/Qwen3.5-2B`，固定并记录实际 revision。
 - QLoRA：ms-swift + bitsandbytes 4-bit，AutoDL 单张 RTX 3090 24GB。实例基础镜像为
   PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8，并直接作为正式训练环境。
-  SFT 阶段不安装 flash-linear-attention 和 causal-conv1d，Qwen3.5 使用 Transformers 的
-  PyTorch fallback；GRPO 的变长线性注意力路径额外固定使用 flash-linear-attention 0.4.2。
-- Teacher：`deepseek-v4-flash`；GRPO Judge：`deepseek-v4-pro`。两者均开启 thinking，并记录
-  实际模型和请求配置。
-- Student、SFT、GRPO 生成关闭 thinking。
-- Base、SFT、GRPO 比较固定使用同一模型 revision、聊天模板和生成参数；学习项目允许使用
+  SFT 和 DPO 阶段不安装 flash-linear-attention 和 causal-conv1d，Qwen3.5 使用 Transformers
+  的 PyTorch fallback；GRPO 如仍需要变长线性注意力，再单独冻结依赖。
+- DPO Judge 与 Teacher 均为 `deepseek-v4-pro`，开启 thinking 并固定
+  `reasoning_effort=max`；记录实际模型和请求配置，人工最终决定偏好。
+- Student、SFT、DPO、GRPO 生成关闭 thinking。
+- Base、SFT、DPO、GRPO 比较固定使用同一模型 revision、聊天模板和生成参数；学习项目允许使用
   同一可用推理链路，不要求为此额外搭建 Transformers 专用环境。
 
 v1 的结论保留在 `V1_RETROSPECTIVE.md` 和 `ISSUES.md`，raw 数据和模型产物已清理。
@@ -51,13 +51,15 @@ Teacher 标签、Base 输出和 SFT adapter 不进入 v2 训练或正式评测�
 | Pilot | 5 | 1 | 验证 Student/Teacher 链路 |
 | SFT（原始 split） | 50 | 10 | Teacher-corrected 监督训练 |
 | SFT（定向补强） | 12 | 不要求均衡 | 针对 Dev bad case 补强 |
-| GRPO | 20 | 4 | 强化学习 |
+| DPO | 20 | 4 | 主观偏好学习 |
+| GRPO | 20 | 规则导向 | 后续明确规则约束；尚未生成 |
 | Dev | 10 | 2 | 阶段选择与观察 |
 | Eval | 20 | 4 | 最终统一评测 |
 
-先生成 100 条共享候选池，再按固定 seed 切分为 SFT/GRPO/Dev/Eval。四个 split 必须数量正确、
-场景均衡、全局无规范化精确重复。记录只包含 `id`、`scenario`、`target_goals` 和 `user`。
-Eval 在最终统一评测前不得用于修改数据、提示词或训练配置。
+原 100 条共享候选池按固定 seed 切出的 SFT、旧 GRPO、Dev 和 Eval 中，旧 GRPO 的 20 条主观
+质量 Prompt 原样迁移为 DPO，ID 改为 `dpo_NNNN` 并记录来源哈希。旧 `rl_train.jsonl` 只作为
+失败 GRPO 的历史输入。未来规则型 GRPO 另行生成 20 条规则压力 Prompt，并与 SFT、DPO、Dev、
+Eval 全局去重。Eval 在最终统一评测前不得用于修改数据、提示词或训练配置。
 
 ### 2.3 Teacher-corrected SFT
 
@@ -80,7 +82,7 @@ Student baseline 和 Teacher audit 全量文件可作为 raw 中间产物删除�
 ### 2.4 Base Dev
 
 为 10 条 Dev 用一个固定 seed 生成 10 条 Base 输出。首次推理时记录实际模型/revision、推理
-链路、seed、聊天模板和生成参数；后续 SFT 与 GRPO 沿用这些条件即可。无需为基线额外搭建
+链路、seed、聊天模板和生成参数；后续 SFT、DPO 与 GRPO 沿用这些条件即可。无需为基线额外搭建
 Transformers 环境，也不要求多 seed 重复采样。
 
 进入下一次 SFT 前必须具备：冻结输入、四个有效 split、通过人工复核的 Pilot、50 条有效
@@ -123,7 +125,7 @@ enable_thinking: false
 混合精度解析为 `fp16=true`，开头连续 6 个 `grad_norm` 为 `NaN`，因此技术门槛失败。
 修复后显式关闭 FP16 和 BF16，保持 model、BNB compute 与 LoRA 均为 FP32；训练结束后还需
 读取 ms-swift 的 `args.json`，确认实际参数没有重新启用混合精度。失败 checkpoint 只作证据，
-不得续训或进入 GRPO。
+不得续训或进入 DPO。
 
 只对 assistant 回复计算 loss，不使用 Dev 搜索 epoch、学习率或 LoRA 参数。技术失败可以修复明确
 的实现问题后重跑；行为失败不得在同一轮静默调参。
@@ -156,38 +158,33 @@ enable_thinking: false
 - SFT 无不可读、角色崩坏或视角错位等严重问题。
 - 三个维度的 SFT 平均分均不得低于 Base。
 
-仅当技术门槛、生成稳定性门槛和人工门槛全部通过时进入 GRPO。
+仅当技术门槛、生成稳定性门槛和人工门槛全部通过时进入 DPO。
 
-## 4. GRPO
+## 4. DPO
 
-从通过 SFT 门槛的 adapter 继续训练，使用冻结的 20 条 GRPO Prompt：
+从通过 SFT 门槛的 adapter 继续训练，学习可以稳定比较、但难以写成客观规则的主观偏好。数据
+准备以 [`STAGE3_DPO_PLAN.md`](STAGE3_DPO_PLAN.md) 为准：
 
-```yaml
-num_generations: 4
-max_completion_length: 256
-learning_rate: 1e-6
-num_train_epochs: 1
-enable_thinking: false
-```
+- 使用迁移后的 20 条独立 DPO Prompt，每条由 SFT adapter 生成 3 个固定 seed 候选。
+- 本地稳定性过滤后，由 `deepseek-v4-pro` Pro Max 做组内排序；无清晰偏好时只补采样一次。
+- 所有候选都不足时，Teacher 只对最佳候选做最小修改。
+- 所有偏好对匿名人工终审；至少冻结 16 对，Teacher 修改参与比例不超过三分之一。
+- 训练文件使用 ms-swift 标准 `messages + rejected_response` 格式。
 
-奖励定义为：
+DPO 训练只运行一组主配置，从 SFT policy 建立训练 policy，并以同一冻结 SFT 状态作为 reference。
+训练配置在数据人工复核通过后单独冻结。训练后必须完成技术有效性检查，以及与 SFT 对齐的
+Dev 生成稳定性和匿名主观质量比较；通过后才进入规则型 GRPO。
 
-```text
-R = Readable × (RoleConsistency + DialogueQuality) / 2
-    - PersonaCopyPenalty - LengthPenalty
-```
+## 5. 规则型 GRPO
 
-奖励子分、本地规则、Judge 配置和校准门槛以
-[`STAGE3_REWARD_SPEC.md`](STAGE3_REWARD_SPEC.md) 为准。
+旧版从 SFT 直接训练、使用在线主观 Judge 奖励的 GRPO 已执行失败并封存，不进入当前链路。未来
+GRPO 从通过验收的 DPO adapter 开始，只学习能够稳定、自动验证的明确规则，并使用独立、规则
+导向且与其他 split 去重的 Prompt。主观角色感、自然度和情绪价值不再作为在线奖励。
 
-训练前人工检查至少 5 组候选和分数。训练后保存实际配置、adapter、奖励曲线、回答样本、长度、
-复读和奖励投机观察。GRPO 必须通过技术门槛以及与 SFT 相同的三层 Dev 评估，才进入统一评测；
-失败时保留结果，不根据 Eval 反复调整奖励。
-
-## 5. 统一评测
+## 6. 统一评测
 
 使用冻结的 20 条 Eval，在相同后端、模型 revision、生成参数和一个固定主 seed 下生成 Base、
-SFT、GRPO 各 20 条输出。Eval 只用于最终比较。
+SFT、DPO、GRPO 各 20 条输出。Eval 只用于最终比较。
 
 逐层报告：
 
@@ -196,15 +193,15 @@ SFT、GRPO 各 20 条输出。Eval 只用于最终比较。
 3. **对话质量**：相关性、自然度、连贯性、内容价值和可继续对话性。
 
 对 10 条 Eval 做匿名比较并保留具体样本。格式、自称、emoji、创造性细节、模板化和长度只作为
-解释性诊断。结论必须区分 SFT 相对 Base、GRPO 相对 SFT 的变化，并注明小样本、单角色、单次
-训练和 Judge 偏差的限制。
+解释性诊断。结论必须区分 SFT 相对 Base、DPO 相对 SFT、GRPO 相对 DPO 的变化，并注明小样本、
+单角色、单次训练和偏好标注偏差的限制。
 
-## 6. 执行清单
+## 7. 执行清单
 
 ### Milestone 1：数据与 Base
 
 - [ ] 冻结 v2 Persona、风格样例、system prompt 和输入哈希。
-- [ ] 生成并验证隔离的 SFT/GRPO/Dev/Eval。
+- [ ] 生成并验证隔离的 SFT/DPO/Dev/Eval；未来 GRPO 另行生成。
 - [ ] 完成 Pilot、50 条 Teacher-corrected SFT、12 条定向补强和人工抽查。
 - [ ] 用固定 seed 生成 10 条可读的 Base Dev，并记录推理条件。
 
@@ -212,15 +209,20 @@ SFT、GRPO 各 20 条输出。Eval 只用于最终比较。
 
 - [ ] 完成一次技术有效的 FP32 QLoRA SFT。
 - [ ] 通过生成稳定性门槛和三目标匿名人工复核。
-- [ ] 记录实际配置、产物、偏差和进入 GRPO 的决定。
+- [ ] 记录实际配置、产物、偏差和进入 DPO 的决定。
 
-### Milestone 3：GRPO
+### Milestone 3：DPO
 
-- [ ] 验证奖励样本并完成一次有效 GRPO。
-- [ ] 完成 GRPO 相对 SFT 的三层 Dev 评估。
+- [ ] 生成、校准并人工复核至少 16 对 DPO 偏好数据。
+- [ ] 完成一次有效 DPO，并完成 DPO 相对 SFT 的三层 Dev 评估。
 
-### Milestone 4：统一评测与复盘
+### Milestone 4：规则型 GRPO
 
-- [ ] 生成对齐的 Base/SFT/GRPO Eval 输出。
+- [ ] 生成独立规则 Prompt，冻结规则奖励并完成一次有效 GRPO。
+- [ ] 完成 GRPO 相对 DPO 的规则与质量回归评估。
+
+### Milestone 5：统一评测与复盘
+
+- [ ] 生成对齐的 Base/SFT/DPO/GRPO Eval 输出。
 - [ ] 完成自动统计、匿名人工比较和诊断观察。
 - [ ] 写出 v2 复盘，明确结果、失败点和结论边界。
