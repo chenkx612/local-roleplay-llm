@@ -16,7 +16,7 @@
   PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8，并直接作为正式训练环境。
   SFT 和 DPO 阶段不安装 flash-linear-attention 和 causal-conv1d，Qwen3.5 使用 Transformers
   的 PyTorch fallback；GRPO 如仍需要变长线性注意力，再单独冻结依赖。
-- 第二轮 DPO 由 Codex 通过离线产物直接完成 Judge/Teacher 裁决，不调用外部 API，也不增加
+- 第二次 DPO run 由 Codex 通过离线产物直接完成 Judge/Teacher 裁决，不调用外部 API，也不增加
   人工数据复核；候选、裁决和淘汰原因必须完整留档。
 - Student、SFT、DPO、GRPO 生成关闭 thinking。
 - Base、SFT、DPO、GRPO 比较固定使用同一模型 revision、聊天模板和生成参数；学习项目允许使用

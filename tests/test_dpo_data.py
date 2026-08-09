@@ -360,8 +360,8 @@ class FinalizeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             run = self.make_run(root, included=MIN_FINAL_PAIRS, teacher_count=2)
-            train = root / "dpo_train_v2.jsonl"
-            audit_path = root / "audit_v2.json"
+            train = root / "dpo_train_run2.jsonl"
+            audit_path = root / "audit_run2.json"
             finalize_run(run_dir=run, train_output=train, audit_output=audit_path)
             rows = [json.loads(line) for line in train.read_text().splitlines()]
             self.assertEqual(len(rows), MIN_FINAL_PAIRS)

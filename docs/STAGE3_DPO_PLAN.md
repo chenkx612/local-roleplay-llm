@@ -11,7 +11,7 @@ DPO 学习“可以稳定比较、但难以写成客观规则”的主观偏好�
 
 ## 2. 偏好数据
 
-第二轮使用独立的 `dpo_prompts_v2.jsonl`：保留第一轮 20 条 Prompt 内容，再新增 20 条针对
+第二次 DPO run 使用独立的 `dpo_prompts_run2.jsonl`：保留第一次 run 的 20 条 Prompt 内容，再新增 20 条针对
 身份指代、背景事实、情绪承接、直接回答和模板化动作的 Prompt。ID 为 `dpo2_0001`～
 `dpo2_0040`，五类场景各 8 条，并继续与 SFT、Dev、Eval 严格去重。
 
@@ -56,7 +56,7 @@ roleplay-dpo-data finalize --run-dir output/morgana-v2/stage3-dpo/data/<run-id>
 当前 run `20260810-dpo-data-2` 生成 80 条候选，其中 73 条通过稳定性检查，6 组提前过滤，
 34 组进入 Codex 裁决。最终确认 21 对直接偏好、9 对最小修改偏好，裁决阶段排除 4 对，冻结
 共 30 对。正式训练集为
-`data/runs/morgana-v2/dpo_train_v2.jsonl`，SHA-256 为
+`data/runs/morgana-v2/dpo_train_run2.jsonl`，SHA-256 为
 `89dd2030fab814454943b312fd65e619f0c807d93076aee7f6878c72fad8bb82`。
 
 ## 5. AutoDL 训练与复核

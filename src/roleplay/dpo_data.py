@@ -1,4 +1,4 @@
-"""Prepare and freeze the second morgana-v2 DPO preference dataset."""
+"""Prepare and freeze preference data for the second morgana-v2 DPO run."""
 
 from __future__ import annotations
 
@@ -36,15 +36,15 @@ from roleplay.sft_eval import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PROMPTS_PATH = ROOT / "data/runs/morgana-v2/dpo_prompts_v2.jsonl"
+PROMPTS_PATH = ROOT / "data/runs/morgana-v2/dpo_prompts_run2.jsonl"
 PERSONA_PATH = ROOT / "data/runs/morgana-v2/inputs/persona.json"
 STYLE_EXAMPLES_PATH = ROOT / "data/runs/morgana-v2/inputs/style_examples.jsonl"
 SYSTEM_PROMPT_PATH = ROOT / "data/runs/morgana-v2/system_prompt.txt"
 SFT_ADAPTER_PATH = ROOT / "output/morgana-v2/stage2-sft/4/adapter"
 OUTPUT_ROOT = ROOT / "output/morgana-v2/stage3-dpo/data"
 DEFAULT_RUN_ID = "20260810-dpo-data-2"
-DEFAULT_TRAIN_OUTPUT = ROOT / "data/runs/morgana-v2/dpo_train_v2.jsonl"
-DEFAULT_AUDIT_OUTPUT = ROOT / "data/runs/morgana-v2/dpo_train_audit_v2.json"
+DEFAULT_TRAIN_OUTPUT = ROOT / "data/runs/morgana-v2/dpo_train_run2.jsonl"
+DEFAULT_AUDIT_OUTPUT = ROOT / "data/runs/morgana-v2/dpo_train_audit_run2.json"
 
 FROZEN_HASHES = {
     PROMPTS_PATH: "f60f27d858a1fb333d14f3c79d10d45086642a57475bfcdb816f15745bc1c0c7",
@@ -177,14 +177,14 @@ def load_prompts(path: Path = PROMPTS_PATH) -> list[dict[str, Any]]:
     rows = load_jsonl(path)
     if len(rows) != EXPECTED_PROMPT_COUNT:
         raise DPODataError(
-            f"DPO v2 Prompt 必须为 {EXPECTED_PROMPT_COUNT} 条，实际 {len(rows)}"
+            f"DPO run2 Prompt 必须为 {EXPECTED_PROMPT_COUNT} 条，实际 {len(rows)}"
         )
     ids: set[str] = set()
     users: set[str] = set()
     scenarios: Counter[str] = Counter()
     for index, row in enumerate(rows, 1):
         if set(row) != {"id", "scenario", "target_goals", "user"}:
-            raise DPODataError(f"DPO v2 Prompt 第 {index} 条字段不正确")
+            raise DPODataError(f"DPO run2 Prompt 第 {index} 条字段不正确")
         prompt_id = row["id"]
         match = (
             PROMPT_ID_PATTERN.fullmatch(prompt_id)
@@ -192,27 +192,27 @@ def load_prompts(path: Path = PROMPTS_PATH) -> list[dict[str, Any]]:
             else None
         )
         if not match or int(match.group(1)) != index:
-            raise DPODataError(f"DPO v2 Prompt 第 {index} 条 id 不正确")
+            raise DPODataError(f"DPO run2 Prompt 第 {index} 条 id 不正确")
         user = row["user"]
         scenario = row["scenario"]
         if not isinstance(user, str) or not user.strip():
-            raise DPODataError(f"DPO v2 Prompt 第 {index} 条 user 无效")
+            raise DPODataError(f"DPO run2 Prompt 第 {index} 条 user 无效")
         if scenario not in EXPECTED_SCENARIOS:
-            raise DPODataError(f"DPO v2 Prompt 第 {index} 条 scenario 无效")
+            raise DPODataError(f"DPO run2 Prompt 第 {index} 条 scenario 无效")
         if row["target_goals"] != [
             "generation_stability",
             "character_consistency",
             "dialogue_quality",
         ]:
-            raise DPODataError(f"DPO v2 Prompt 第 {index} 条 target_goals 无效")
+            raise DPODataError(f"DPO run2 Prompt 第 {index} 条 target_goals 无效")
         normalized = _canonical_user(user)
         if prompt_id in ids or normalized in users:
-            raise DPODataError("DPO v2 Prompt 包含重复 id 或 user")
+            raise DPODataError("DPO run2 Prompt 包含重复 id 或 user")
         ids.add(prompt_id)
         users.add(normalized)
         scenarios[scenario] += 1
     if set(scenarios) != EXPECTED_SCENARIOS or set(scenarios.values()) != {8}:
-        raise DPODataError(f"DPO v2 Prompt 场景必须各 8 条: {dict(scenarios)}")
+        raise DPODataError(f"DPO run2 Prompt 场景必须各 8 条: {dict(scenarios)}")
     return rows
 
 
@@ -231,7 +231,7 @@ def validate_cross_split_uniqueness(
             user = row.get("user")
             if isinstance(user, str) and _canonical_user(user) in dpo_users:
                 raise DPODataError(
-                    f"DPO v2 Prompt 与其他 split 重复: {path} user={user}"
+                    f"DPO run2 Prompt 与其他 split 重复: {path} user={user}"
                 )
 
 
@@ -593,7 +593,7 @@ def _load_or_create_summary(run_dir: Path, run_id: str) -> dict[str, Any]:
         if summary.get("contract") != expected["contract"] or summary.get(
             "input_hashes"
         ) != expected["input_hashes"]:
-            raise DPODataError("现有 run 与冻结 DPO v2 配置或输入不一致")
+            raise DPODataError("现有 run 与第二次 DPO run 的冻结配置或输入不一致")
         return summary
     run_dir.mkdir(parents=True, exist_ok=True)
     summary = {
@@ -630,7 +630,7 @@ def prepare_run(
         "insufficient_candidates",
         "ready_for_dpo",
     }:
-        print(f"DPO v2 run 已存在（{summary['status']}）: {run_dir}")
+        print(f"第二次 DPO run 已存在（{summary['status']}）: {run_dir}")
         return run_dir
 
     candidates_path = run_dir / "candidates.jsonl"
@@ -776,7 +776,7 @@ def finalize_run(
     ) != expected["input_hashes"]:
         raise DPODataError("run 配置或输入哈希与当前冻结契约不一致")
     if train_output.exists() or audit_output.exists():
-        raise DPODataError("DPO v2 训练集或审计文件已存在，拒绝覆盖")
+        raise DPODataError("第二次 DPO run 的训练集或审计文件已存在，拒绝覆盖")
 
     candidates, packet_by_id, key_by_id, result_by_id = _load_finalization_inputs(
         run_dir, summary
@@ -909,7 +909,7 @@ def finalize_run(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="准备 morgana-v2 第二轮 DPO 偏好数据")
+    parser = argparse.ArgumentParser(description="准备 morgana-v2 第二次 DPO run 偏好数据")
     subparsers = parser.add_subparsers(dest="command", required=True)
     prepare = subparsers.add_parser(
         "prepare", help="生成双候选并产出匿名 Codex 裁决包"
@@ -918,7 +918,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--output-root", type=Path, default=OUTPUT_ROOT)
     prepare.add_argument("--base-model", type=Path, default=BASE_SNAPSHOT)
     finalize = subparsers.add_parser(
-        "finalize", help="校验 Codex 裁决并冻结 DPO v2 训练集"
+        "finalize", help="校验 Codex 裁决并冻结第二次 DPO run 训练集"
     )
     finalize.add_argument("--run-dir", type=Path, required=True)
     finalize.add_argument("--train-output", type=Path, default=DEFAULT_TRAIN_OUTPUT)
@@ -942,8 +942,8 @@ def main() -> None:
                 train_output=args.train_output,
                 audit_output=args.audit_output,
             )
-            print(f"DPO v2 train: {train}")
-            print(f"DPO v2 audit: {audit}")
+            print(f"DPO run2 train: {train}")
+            print(f"DPO run2 audit: {audit}")
     except (DPODataError, OSError, ValueError) as exc:
         parser.error(str(exc))
 

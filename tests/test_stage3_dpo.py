@@ -141,7 +141,7 @@ def review_artifacts(run_dir: Path, *, submitted=True, automatic=True) -> None:
 class FrozenInputTests(unittest.TestCase):
     def test_accepts_repository_data_and_config(self):
         rows = validate_training_rows(
-            Path("data/runs/morgana-v2/dpo_train_v2.jsonl")
+            Path("data/runs/morgana-v2/dpo_train_run2.jsonl")
         )
         steps = validate_training_config(
             _load_yaml(Path("configs/morgana_v2_dpo.yaml"))
@@ -228,7 +228,7 @@ class FrozenInputTests(unittest.TestCase):
 class RunWorkflowTests(unittest.TestCase):
     def _run(self, root: Path, *, fail_training=False):
         repo = root / "repo"
-        train_path = repo / "data/runs/morgana-v2/dpo_train_v2.jsonl"
+        train_path = repo / "data/runs/morgana-v2/dpo_train_run2.jsonl"
         dev_path = repo / "data/runs/morgana-v2/dev.jsonl"
         system_path = repo / "data/runs/morgana-v2/system_prompt.txt"
         config_path = repo / "configs/morgana_v2_dpo.yaml"

@@ -54,7 +54,7 @@ from roleplay.stage2_sft import (
 MODEL_ID = "Qwen/Qwen3.5-2B"
 MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_dpo.yaml")
-TRAIN_RELATIVE_PATH = Path("data/runs/morgana-v2/dpo_train_v2.jsonl")
+TRAIN_RELATIVE_PATH = Path("data/runs/morgana-v2/dpo_train_run2.jsonl")
 DEV_RELATIVE_PATH = Path("data/runs/morgana-v2/dev.jsonl")
 SYSTEM_PROMPT_RELATIVE_PATH = Path("data/runs/morgana-v2/system_prompt.txt")
 SFT_ADAPTER_RELATIVE_PATH = Path(
@@ -167,7 +167,7 @@ def validate_sft_adapter(adapter_dir: Path) -> dict[str, str]:
 
 
 def validate_training_rows(path: Path) -> list[dict[str, Any]]:
-    """Require the frozen 30-pair ms-swift DPO v2 dataset."""
+    """Require the frozen 30-pair dataset from the second DPO run."""
     validate_frozen_file(path, TRAIN_SHA256)
     rows = read_jsonl(path)
     if len(rows) != 30:

@@ -1,20 +1,20 @@
 # morgana-v2 运行日志
 
-## 2026-08-10：第二轮 DPO 数据扩量并改用 Codex 离线裁决
+## 2026-08-10：第二次 DPO run 扩量并改用 Codex 离线裁决
 
 - 第一次 DPO run `20260809-2350` 技术训练与自动稳定性检查完成，但人工复核仅胜 5/10，
   有 2 次明显落后，并在 `dev_0009` 出现把当前用户与“莲”拆开的严重视角错误；生成稳定性、
   角色一致性、对话质量均分由 SFT 的 `8.0/5.2/5.7` 降至 `7.4/5.1/5.2`，不进入后续阶段。
-- 第二轮不回退追加 SFT，也不沿用失败 DPO adapter；从同一份已验收 SFT adapter 重新开始，
-  只改变偏好数据数量和质量。新建 `dpo_prompts_v2.jsonl` 共 40 条，五类场景各 8 条；每条仅
+- 第二次 DPO run 不回退追加 SFT，也不沿用失败 DPO adapter；从同一份已验收 SFT adapter
+  重新开始，只改变偏好数据数量和质量。新建 `dpo_prompts_run2.jsonl` 共 40 条，五类场景各 8 条；每条仅
   生成 2 个固定 seed 候选，不补采样。
 - 数据 run `20260810-dpo-data-2` 共生成 80 条候选，73 条通过本地稳定性检查，34 组进入匿名
   Codex 裁决；6 组因候选未全部稳定而提前过滤。Codex 确认 21 对直接偏好、完成 9 对最小修改，
   并排除 4 对无清晰偏好的样本。
-- `finalize` 冻结 30 对 ms-swift DPO v2 数据，Teacher 修改占 `9/30`，未超过三分之一。
-  `dpo_train_v2.jsonl` SHA-256 为
+- `finalize` 为第二次 DPO run 冻结 30 对 ms-swift 数据，Teacher 修改占 `9/30`，未超过三分之一。
+  `dpo_train_run2.jsonl` SHA-256 为
   `89dd2030fab814454943b312fd65e619f0c807d93076aee7f6878c72fad8bb82`；完整采用、修改和淘汰
-  理由保存在 `dpo_train_audit_v2.json`。
+  理由保存在 `dpo_train_audit_run2.json`。
 - DPO 超参数保持 `beta=0.1`、`learning_rate=1e-6`、3 epochs、batch size 1、梯度累积 4；
   数据量增加后计划 optimizer steps 从 15 增至 24，训练仍从原 SFT adapter 开始。
 
