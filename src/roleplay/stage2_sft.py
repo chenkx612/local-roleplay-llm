@@ -71,7 +71,7 @@ DISABLED_ACCELERATION_PACKAGES = (
 EXPECTED_INPUTS = {
     "data/runs/morgana-v2/sft_train.jsonl": {
         "records": 50,
-        "sha256": "3b10722cdfe83b1f11b7514bec3c53aa15139210cc1601cb68b96b3cc6179c94",
+        "sha256": "2c05d7618f433d3ddf972c8563ae8c3e5662c9ab227fbe83fe01f0282c4f720d",
     },
     "data/runs/morgana-v2/dev.jsonl": {
         "records": 10,
