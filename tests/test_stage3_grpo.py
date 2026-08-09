@@ -107,6 +107,13 @@ class FrozenInputTests(unittest.TestCase):
         with self.assertRaisesRegex(Stage3GRPOError, "padding_free"):
             validate_training_config(config)
 
+    def test_rejects_training_evaluation_sampling_drift(self):
+        config = _load_yaml(Path("configs/morgana_v2_grpo.yaml"))
+        config["repetition_penalty"] = 1.0
+
+        with self.assertRaisesRegex(Stage3GRPOError, "repetition_penalty"):
+            validate_training_config(config)
+
     def test_stage3_requires_fla_but_not_causal_conv1d(self):
         requirements = (
             Path(__file__).resolve().parents[1]

@@ -114,8 +114,7 @@ Qwen3.5 的 GRPO 前向会使用变长线性注意力内核，因此阶段三额
 
 ```bash
 gh auth login  # 仅首次需要
-roleplay-stage3-grpo publish \
-  --run-dir output/morgana-v2/stage3-grpo/<run-id>
+roleplay-stage3-grpo publish --run-dir output/morgana-v2/stage3-grpo/<run-id>
 ```
 
 记下输出的 Release tag。
@@ -132,8 +131,7 @@ roleplay-stage3-grpo download --tag <Release-tag>
 根据 `manual_review_packet.json` 填写 `manual_review_results.json`，然后执行：
 
 ```bash
-roleplay-stage3-grpo review \
-  --run-dir output/morgana-v2/stage3-grpo/<run-id>
+roleplay-stage3-grpo review --run-dir output/morgana-v2/stage3-grpo/<run-id>
 
 git add -f \
   output/morgana-v2/stage3-grpo/<run-id>/run_summary.json \

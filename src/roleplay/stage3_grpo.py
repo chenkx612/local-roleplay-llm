@@ -86,6 +86,13 @@ SFT_ADAPTER_HASHES = {
     ),
 }
 
+STAGE3_SAMPLING_CONFIG = {
+    "temperature": 0.6,
+    "top_p": 0.8,
+    "top_k": 20,
+    "repetition_penalty": 1.45,
+}
+
 EXPECTED_CONFIG = {
     "rlhf_type": "grpo",
     "model": MODEL_ID,
@@ -108,6 +115,7 @@ EXPECTED_CONFIG = {
     "gradient_accumulation_steps": 4,
     "num_train_epochs": 1,
     "learning_rate": 1.0e-6,
+    **STAGE3_SAMPLING_CONFIG,
     "enable_thinking": False,
     "packing": False,
     "padding_free": False,
@@ -376,10 +384,7 @@ def generate_dev_review_artifacts(
     ]
     request_config = RequestConfig(
         max_tokens=512,
-        temperature=0.6,
-        top_p=0.8,
-        top_k=20,
-        repetition_penalty=1.45,
+        **STAGE3_SAMPLING_CONFIG,
     )
     quantization = BitsAndBytesConfig(
         load_in_4bit=True,
