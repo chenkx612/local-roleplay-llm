@@ -112,7 +112,7 @@ EXPECTED_CONFIG = {
     "loss_scale": "last_round",
     "beta": 0.1,
     "loss_type": "sigmoid",
-    "num_train_epochs": 3,
+    "num_train_epochs": 1,
     "per_device_train_batch_size": 1,
     "gradient_accumulation_steps": 4,
     "learning_rate": 1.0e-6,
@@ -222,9 +222,9 @@ def validate_training_config(config: dict[str, Any]) -> int:
         )
         * config["num_train_epochs"]
     )
-    if planned_steps != 24:
+    if planned_steps != 8:
         raise Stage3DPOError(
-            f"DPO 预期 optimizer steps 不再是 24: {planned_steps}"
+            f"DPO 预期 optimizer steps 不再是 8: {planned_steps}"
         )
     return planned_steps
 

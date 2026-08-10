@@ -180,7 +180,7 @@ class AutomaticGateTests(unittest.TestCase):
         self.assertEqual(gate["goal"], "generation_stability")
         self.assertTrue(all(gate["checks"].values()))
 
-    def test_format_and_emoji_are_diagnostics_not_gate_requirements(self):
+    def test_format_is_diagnostic_but_symbol_regression_fails_gate(self):
         sft = make_rows(lambda _seed, _index: "吾辈知道了 🧑‍💻")
         gate = evaluate_core_behavior_gate(
             self.base, sft, EVALUATION_SEEDS, IDS
@@ -190,7 +190,9 @@ class AutomaticGateTests(unittest.TestCase):
             len(gate["sft"]["overall"]["abnormal_symbol_ids"]),
             len(EVALUATION_SEEDS) * len(IDS),
         )
-        self.assertTrue(gate["passed"])
+        self.assertFalse(gate["checks"]["abnormal_symbol_count_not_higher"])
+        self.assertFalse(gate["checks"]["degeneration_count_not_higher"])
+        self.assertFalse(gate["passed"])
 
     def test_core_gate_fails_each_stability_regression(self):
         cases = {}
@@ -200,6 +202,12 @@ class AutomaticGateTests(unittest.TestCase):
         truncated = copy.deepcopy(self.sft)
         truncated[0]["finish_reason"] = "length"
         cases["truncation_count_not_higher"] = truncated
+        unclosed = copy.deepcopy(self.sft)
+        unclosed[0]["assistant"] = "（点头吾辈知道了。"
+        cases["unclosed_bracket_count_not_higher"] = unclosed
+        abnormal = copy.deepcopy(self.sft)
+        abnormal[0]["assistant"] += "🐾"
+        cases["abnormal_symbol_count_not_higher"] = abnormal
         repeated = copy.deepcopy(self.sft)
         repeated[0]["assistant"] = "哈" * 35
         cases["no_repeated_spans"] = repeated
@@ -213,6 +221,20 @@ class AutomaticGateTests(unittest.TestCase):
                 )
                 self.assertFalse(gate["checks"][failed_check])
                 self.assertFalse(gate["passed"])
+
+    def test_core_gate_rejects_new_wrong_self_reference(self):
+        base = make_rows(lambda _seed, _index: "（点头）吾辈知道了。")
+        sft = copy.deepcopy(base)
+        sft[0]["assistant"] = "（点头）本大爷知道了。"
+
+        gate = evaluate_core_behavior_gate(
+            base, sft, EVALUATION_SEEDS, IDS
+        )
+
+        self.assertFalse(
+            gate["checks"]["wrong_self_reference_count_not_higher"]
+        )
+        self.assertFalse(gate["passed"])
 
 
 class ManualReviewTests(unittest.TestCase):

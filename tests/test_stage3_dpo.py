@@ -148,7 +148,7 @@ class FrozenInputTests(unittest.TestCase):
         )
 
         self.assertEqual(len(rows), 30)
-        self.assertEqual(steps, 24)
+        self.assertEqual(steps, 8)
 
     def test_rejects_hash_count_schema_roles_and_equal_answers(self):
         cases = []
@@ -389,13 +389,13 @@ class RunWorkflowTests(unittest.TestCase):
             self.assertEqual(run_dir, (root / "runs/run-1").resolve())
             validate_archive_contract(run_dir)
             self.assertEqual(commands[0][0][:2], ["swift", "rlhf"])
-            self.assertEqual(commands[0][1], 24)
+            self.assertEqual(commands[0][1], 8)
             self.assertFalse((root / "runs/.work/run-1").exists())
             summary = json.loads(
                 (run_dir / "run_summary.json").read_text(encoding="utf-8")
             )
             self.assertEqual(summary["status"], "awaiting_manual_review")
-            self.assertEqual(summary["training"]["optimizer_steps"], 24)
+            self.assertEqual(summary["training"]["optimizer_steps"], 8)
             self.assertTrue(summary["technically_valid"])
 
     def test_failure_retains_work_and_minimal_summary(self):

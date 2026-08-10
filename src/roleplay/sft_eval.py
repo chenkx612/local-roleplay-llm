@@ -363,6 +363,21 @@ def evaluate_core_behavior_gate(
         "truncation_count_not_higher": (
             sft_all["truncation_count"] <= base_all["truncation_count"]
         ),
+        "degeneration_count_not_higher": (
+            sft_all["degeneration_count"] <= base_all["degeneration_count"]
+        ),
+        "unclosed_bracket_count_not_higher": (
+            len(sft_all["unclosed_bracket_ids"])
+            <= len(base_all["unclosed_bracket_ids"])
+        ),
+        "abnormal_symbol_count_not_higher": (
+            len(sft_all["abnormal_symbol_ids"])
+            <= len(base_all["abnormal_symbol_ids"])
+        ),
+        "wrong_self_reference_count_not_higher": (
+            sft_all["wrong_self_reference_count"]
+            <= base_all["wrong_self_reference_count"]
+        ),
         "no_repeated_spans": not sft_all["repetition_issue_ids"],
         "no_gibberish": sft_all["gibberish_count"] == 0,
     }
