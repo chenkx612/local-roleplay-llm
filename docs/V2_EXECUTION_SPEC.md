@@ -174,7 +174,7 @@ enable_thinking: false
 - 训练文件使用 ms-swift 标准 `messages + rejected_response` 格式。
 
 DPO 训练只运行一组主配置，从 SFT policy 建立训练 policy，并以同一冻结 SFT 状态作为 reference。
-当前诊断配置为 FP32 QLoRA、`beta=0.1`、sigmoid loss、`rpo_alpha=0.3`、
+当前诊断配置为 FP32 QLoRA、`beta=0.1`、sigmoid loss、`rpo_alpha=1.0`、
 `learning_rate=1e-6`、1 epoch、物理 batch size 1、梯度累积 4，共 8 个 optimizer steps。
 训练后验证实际 FP32 参数、有限且为正的 loss/grad norm、完整 step 数、adapter 非零更新和可
 重新加载生成。
