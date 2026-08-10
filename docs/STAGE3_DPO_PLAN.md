@@ -35,6 +35,12 @@ roleplay-dpo-data prepare
 偏好必须至少由角色一致性、表达自然度、情绪回应或对话延续性之一支撑，且另一个核心维度不
 明显退化。纯硬规则差异、实质权衡和平局不进入训练。
 
+前三次 DPO 均未改善 Dev 主观质量后，新增 chosen 最小编辑判定实验。实验从同一候选池中为
+每条 Prompt 选择最接近优秀回答的稳定候选；来源必须达到稳定性 8 分、目标主观维度 7 分、
+另一主观维度 8 分，且不得含事实错误、指代错误或多个缺陷。chosen 只提升目标主观维度并达到
+8/8/8，同时要求字符相似度至少 `0.65`、长度比在 `0.80～1.20`，用于验证当前 SFT 输出分布
+附近是否存在可学习的高质量偏好对。
+
 ## 3. 复核与冻结
 
 Codex 填写 `codex_review_results.json` 后执行：
@@ -50,16 +56,27 @@ roleplay-dpo-data finalize --run-dir output/morgana-v2/stage3-dpo/data/<run-id>
 - 平局、实质权衡和纯硬规则差异直接排除。
 - 训练文件严格使用 ms-swift 的 `messages + rejected_response` 格式，审计信息单独保存。
 
+上述 30 对门槛适用于常规 DPO 数据发布。本次是一次明确的诊断例外：判定实验只得到 17 条
+合格 pair，不宣称数据覆盖充分；使用它们训练是为了隔离验证“少量但高质量的局部偏好对”能否
+避免此前 DPO 退化，不能据此降低最终 Dev 验收标准。
+
 ## 4. 最小产物
 
 数据准备 run 保存 160 条候选、匿名 Codex 裁决包、映射 key、Codex 结果和 `run_summary.json`。
 冻结后的审计文件保留全部采用、修改和淘汰理由，训练文件不混入审计字段。
 
-当前 run `20260810-dpo-data-3` 生成 160 条候选，其中 146 条通过稳定性检查，1 组提前过滤，
-39 组进入 Codex 裁决。最终确认 25 对直接偏好、6 对局部修改偏好，裁决阶段排除 8 对，冻结
-共 31 对；Teacher 占 `6/31`。正式训练集为
-`data/runs/morgana-v2/dpo_train_run3.jsonl`，SHA-256 为
-`55d6b0efd31dce48fca2009323dd2b7a9f841e74b206187b081a9c6e8e3c47c3`。
+来源 run `20260810-dpo-data-3` 生成 160 条候选，其中 146 条通过稳定性检查。判定实验
+`20260811-dpo-editability-1` 覆盖全部 40 条 Prompt，最终 17 条可通过单维最小编辑达到
+8/8/8，23 条不可编辑。成功 pair 平均字符相似度 `0.772`、平均长度比 `0.965`。
+
+使用以下命令从已完成且哈希一致的判定报告导出训练集：
+
+```bash
+roleplay-dpo-editability export-training
+```
+
+正式训练集为 `data/runs/morgana-v2/dpo_train_editability17.jsonl`，共 17 对，SHA-256 为
+`2836a41969ae250b3ddea692cf441c5c95179723cc5a81bb07c5c0892c39e922`。
 
 ## 5. AutoDL 训练与复核
 
@@ -73,11 +90,11 @@ roleplay-stage3-dpo review --run-dir output/morgana-v2/stage3-dpo/<run-id>
 ```
 
 当前诊断配置为 FP32 QLoRA DPO：SFT adapter 同时作为 policy 起点和 reference，
-`beta=0.1`、`loss_type=sigmoid`、`rpo_alpha=1.0`、`learning_rate=1e-6`、1 epoch、物理
-batch size 1、梯度累积 4，共 8 个 optimizer steps。继续使用经过绝对质量门和最小分差约束的
-31 对数据；相较失败 run `20260811-0008`，当前实验只把 `rpo_alpha` 从 `0.3` 提高到 `1.0`，
-验证更强 chosen NLL 能否使 chosen 绝对似然上升。DPO 沿用阶段二依赖，不安装可选注意力内核，
-也不调用外部 Judge API。
+`beta=0.1`、`loss_type=sigmoid`、`rpo_alpha=0.3`、`learning_rate=5e-7`、1 epoch、物理
+batch size 1、梯度累积 2，共 9 个 optimizer steps。相较失败的 31 对 run，本次只使用 17 条
+最小编辑 pair；降低学习率和 RPO 权重以限制分布漂移，减小梯度累积以在不重复数据的前提下
+保留足够更新次数。LoRA、seed、推理参数和评测口径不变。DPO 沿用阶段二依赖，不安装可选
+注意力内核，也不调用外部 Judge API。
 
 训练结束后使用相同推理链路、聊天模板、生成参数和固定 seed 生成 SFT/DPO Dev 对照。自动门槛
 除完整性、停止原因、截断、复读和乱码外，还要求总退化数、括号未闭合数、异常符号数和错误

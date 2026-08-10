@@ -54,7 +54,9 @@ from roleplay.stage2_sft import (
 MODEL_ID = "Qwen/Qwen3.5-2B"
 MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_dpo.yaml")
-TRAIN_RELATIVE_PATH = Path("data/runs/morgana-v2/dpo_train_run3.jsonl")
+TRAIN_RELATIVE_PATH = Path(
+    "data/runs/morgana-v2/dpo_train_editability17.jsonl"
+)
 DEV_RELATIVE_PATH = Path("data/runs/morgana-v2/dev.jsonl")
 SYSTEM_PROMPT_RELATIVE_PATH = Path("data/runs/morgana-v2/system_prompt.txt")
 SFT_ADAPTER_RELATIVE_PATH = Path(
@@ -62,8 +64,8 @@ SFT_ADAPTER_RELATIVE_PATH = Path(
 )
 DEFAULT_OUTPUT_RELATIVE_PATH = Path("output/morgana-v2/stage3-dpo")
 
-TRAIN_SHA256 = "55d6b0efd31dce48fca2009323dd2b7a9f841e74b206187b081a9c6e8e3c47c3"
-TRAIN_PAIR_COUNT = 31
+TRAIN_SHA256 = "2836a41969ae250b3ddea692cf441c5c95179723cc5a81bb07c5c0892c39e922"
+TRAIN_PAIR_COUNT = 17
 DEV_SHA256 = "74cf6d05921155cec5c070ca8a611c7a8e6751b00ca0b77a6f4e9085aeeecb22"
 SYSTEM_PROMPT_SHA256 = (
     "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
@@ -113,11 +115,11 @@ EXPECTED_CONFIG = {
     "loss_scale": "last_round",
     "beta": 0.1,
     "loss_type": "sigmoid",
-    "rpo_alpha": 1.0,
+    "rpo_alpha": 0.3,
     "num_train_epochs": 1,
     "per_device_train_batch_size": 1,
-    "gradient_accumulation_steps": 4,
-    "learning_rate": 1.0e-6,
+    "gradient_accumulation_steps": 2,
+    "learning_rate": 5.0e-7,
     "gradient_checkpointing": True,
     "enable_thinking": False,
     "add_non_thinking_prefix": True,
@@ -226,9 +228,9 @@ def validate_training_config(config: dict[str, Any]) -> int:
         )
         * config["num_train_epochs"]
     )
-    if planned_steps != 8:
+    if planned_steps != 9:
         raise Stage3DPOError(
-            f"DPO 预期 optimizer steps 不再是 8: {planned_steps}"
+            f"DPO 预期 optimizer steps 不再是 9: {planned_steps}"
         )
     return planned_steps
 

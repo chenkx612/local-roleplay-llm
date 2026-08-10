@@ -170,12 +170,14 @@ enable_thinking: false
 - chosen 必须通过稳定性 `>=8`、角色一致性 `>=7`、对话质量 `>=7` 的绝对质量门，并相对稳定
   rejected 在角色一致性或对话质量上至少领先 2 分。
 - 候选都不足时，Codex 只对较好候选做局部修改；共同缺陷、平局和实质权衡直接排除。
-- 至少冻结 30 对，Teacher 修改参与比例不超过五分之一。
+- 常规数据发布至少冻结 30 对，Teacher 修改参与比例不超过五分之一；当前 17 对最小编辑数据
+  作为诊断例外，不降低最终 Dev 验收标准。
 - 训练文件使用 ms-swift 标准 `messages + rejected_response` 格式。
 
 DPO 训练只运行一组主配置，从 SFT policy 建立训练 policy，并以同一冻结 SFT 状态作为 reference。
-当前诊断配置为 FP32 QLoRA、`beta=0.1`、sigmoid loss、`rpo_alpha=1.0`、
-`learning_rate=1e-6`、1 epoch、物理 batch size 1、梯度累积 4，共 8 个 optimizer steps。
+当前诊断配置为 FP32 QLoRA、`beta=0.1`、sigmoid loss、`rpo_alpha=0.3`、
+`learning_rate=5e-7`、1 epoch、物理 batch size 1、梯度累积 2，共 9 个 optimizer steps；
+训练集为判定实验导出的 17 条单维最小编辑 pair。
 训练后验证实际 FP32 参数、有限且为正的 loss/grad norm、完整 step 数、adapter 非零更新和可
 重新加载生成。
 

@@ -33,7 +33,7 @@ from roleplay.stage3_dpo import (
 )
 
 
-def dpo_rows(count=31):
+def dpo_rows(count=17):
     return [
         {
             "messages": [
@@ -141,18 +141,18 @@ def review_artifacts(run_dir: Path, *, submitted=True, automatic=True) -> None:
 class FrozenInputTests(unittest.TestCase):
     def test_accepts_repository_data_and_config(self):
         rows = validate_training_rows(
-            Path("data/runs/morgana-v2/dpo_train_run3.jsonl")
+            Path("data/runs/morgana-v2/dpo_train_editability17.jsonl")
         )
         steps = validate_training_config(
             _load_yaml(Path("configs/morgana_v2_dpo.yaml"))
         )
 
-        self.assertEqual(len(rows), 31)
-        self.assertEqual(steps, 8)
+        self.assertEqual(len(rows), 17)
+        self.assertEqual(steps, 9)
 
     def test_rejects_hash_count_schema_roles_and_equal_answers(self):
         cases = []
-        cases.append(dpo_rows(30))
+        cases.append(dpo_rows(16))
         wrong_fields = dpo_rows()
         wrong_fields[0]["extra"] = True
         cases.append(wrong_fields)
@@ -185,7 +185,8 @@ class FrozenInputTests(unittest.TestCase):
         for name, value in (
             ("learning_rate", 5.0e-6),
             ("beta", 0.2),
-            ("rpo_alpha", 0.3),
+            ("rpo_alpha", 1.0),
+            ("gradient_accumulation_steps", 4),
             ("padding_free", True),
             ("ref_adapters", []),
         ):
@@ -229,7 +230,9 @@ class FrozenInputTests(unittest.TestCase):
 class RunWorkflowTests(unittest.TestCase):
     def _run(self, root: Path, *, fail_training=False):
         repo = root / "repo"
-        train_path = repo / "data/runs/morgana-v2/dpo_train_run3.jsonl"
+        train_path = (
+            repo / "data/runs/morgana-v2/dpo_train_editability17.jsonl"
+        )
         dev_path = repo / "data/runs/morgana-v2/dev.jsonl"
         system_path = repo / "data/runs/morgana-v2/system_prompt.txt"
         config_path = repo / "configs/morgana_v2_dpo.yaml"
@@ -390,13 +393,13 @@ class RunWorkflowTests(unittest.TestCase):
             self.assertEqual(run_dir, (root / "runs/run-1").resolve())
             validate_archive_contract(run_dir)
             self.assertEqual(commands[0][0][:2], ["swift", "rlhf"])
-            self.assertEqual(commands[0][1], 8)
+            self.assertEqual(commands[0][1], 9)
             self.assertFalse((root / "runs/.work/run-1").exists())
             summary = json.loads(
                 (run_dir / "run_summary.json").read_text(encoding="utf-8")
             )
             self.assertEqual(summary["status"], "awaiting_manual_review")
-            self.assertEqual(summary["training"]["optimizer_steps"], 8)
+            self.assertEqual(summary["training"]["optimizer_steps"], 9)
             self.assertTrue(summary["technically_valid"])
 
     def test_failure_retains_work_and_minimal_summary(self):

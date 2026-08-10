@@ -22,6 +22,7 @@ roleplay-stage3-dpo = "roleplay.stage3_dpo:main"
 roleplay-stage3-grpo = "roleplay.stage3_grpo:main"
 roleplay-grpo-candidates = "roleplay.grpo_candidates:main"
 roleplay-dpo-data = "roleplay.dpo_data:main"
+roleplay-dpo-editability = "roleplay.dpo_editability:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
