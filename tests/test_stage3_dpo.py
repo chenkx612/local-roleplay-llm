@@ -185,7 +185,7 @@ class FrozenInputTests(unittest.TestCase):
         for name, value in (
             ("learning_rate", 5.0e-6),
             ("beta", 0.2),
-            ("rpo_alpha", None),
+            ("rpo_alpha", 0.1),
             ("padding_free", True),
             ("ref_adapters", []),
         ):

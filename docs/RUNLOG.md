@@ -1,5 +1,13 @@
 # morgana-v2 运行日志
 
+## 2026-08-10：DPO 将 RPO 权重提高至 0.3
+
+- `rpo_alpha=0.1` 的 run `20260810-2315` 已确认 RPO 正常生效，平均 chosen reward 由无 RPO
+  run 的 `-0.001468` 改善为 `0.000383`；但固定 seed 下的 10 条 DPO Dev 输出与无 RPO run
+  逐字节相同，自动评测仍失败。
+- 下一次受控实验仅将 `rpo_alpha` 从 `0.1` 提高到 `0.3`；同一份 30 对数据、1 epoch、8 steps、
+  学习率、beta、采样参数和评测全部保持不变。
+
 ## 2026-08-10：DPO 加入小权重 chosen NLL/RPO
 
 - 单 epoch 诊断 run `20260810-2304` 技术训练正常，adapter 最大更新降至
