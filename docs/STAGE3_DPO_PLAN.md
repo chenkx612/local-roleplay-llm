@@ -71,10 +71,10 @@ roleplay-stage3-dpo review --run-dir output/morgana-v2/stage3-dpo/<run-id>
 ```
 
 当前诊断配置为 FP32 QLoRA DPO：SFT adapter 同时作为 policy 起点和 reference，
-`beta=0.1`、`loss_type=sigmoid`、`learning_rate=1e-6`、1 epoch、物理 batch size 1、
-梯度累积 4，共 8 个 optimizer steps。相较失败的第二次 DPO run，只改变 epoch 数，用于验证
-后续 epoch 是否放大偏好数据中的噪声。DPO 沿用阶段二依赖，不安装可选注意力内核，也不调用
-外部 Judge API。
+`beta=0.1`、`loss_type=sigmoid`、`rpo_alpha=0.1`、`learning_rate=1e-6`、1 epoch、物理
+batch size 1、梯度累积 4，共 8 个 optimizer steps。相较失败的单 epoch 诊断 run，只加入
+小权重 chosen NLL/RPO 项，用于验证提高 chosen 似然能否保护生成质量；其他训练输入和参数保持
+不变。DPO 沿用阶段二依赖，不安装可选注意力内核，也不调用外部 Judge API。
 
 训练结束后使用相同推理链路、聊天模板、生成参数和固定 seed 生成 SFT/DPO Dev 对照。自动门槛
 除完整性、停止原因、截断、复读和乱码外，还要求总退化数、括号未闭合数、异常符号数和错误
