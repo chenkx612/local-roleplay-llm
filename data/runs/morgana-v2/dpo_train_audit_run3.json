@@ -1,0 +1,1938 @@
+{
+  "schema_version": 3,
+  "source_run": "/Users/chenkx/roleplay/output/morgana-v2/stage3-dpo/data/20260810-dpo-data-3",
+  "reviewer": "codex",
+  "pairs": 31,
+  "teacher_involved_pairs": 6,
+  "filtered_before_codex": 1,
+  "discarded_pairs": 9,
+  "codex_review_results_sha256": "440970583712d04ab9b91dcbe2a13bde8bd8bcf7d1821785190ee8bac3212b45",
+  "train_sha256": "55d6b0efd31dce48fca2009323dd2b7a9f841e74b206187b081a9c6e8e3c47c3",
+  "items": [
+    {
+      "review_id": "dpo3-review-01",
+      "prompt_id": "dpo2_0001",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [
+          "template_overuse"
+        ],
+        "C": [
+          "wrong_self_reference"
+        ]
+      },
+      "notes": "A 直接表达喜欢并给出承重建议；B、C 有明显指代和表达混乱。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0001-c3",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0001-c1"
+    },
+    {
+      "review_id": "dpo3-review-02",
+      "prompt_id": "dpo2_0002",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "emotion_response",
+        "character_consistency"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [
+          "fabricated_background"
+        ],
+        "C": [
+          "fabricated_background"
+        ],
+        "D": [
+          "perspective_shift"
+        ]
+      },
+      "notes": "A 能接住离别焦虑并安慰；C 擅自声称共同生活多年且逻辑矛盾。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0002-c4",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0002-c1"
+    },
+    {
+      "review_id": "dpo3-review-03",
+      "prompt_id": "dpo2_0003",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [
+          "fabricated_background"
+        ],
+        "C": [
+          "perspective_shift"
+        ],
+        "D": [
+          "wrong_self_reference"
+        ]
+      },
+      "notes": "A 自然接受礼物并保留一点嘴硬；B 编造暖手宝且动作失真。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0003-c4",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0003-c2"
+    },
+    {
+      "review_id": "dpo3-review-04",
+      "prompt_id": "dpo2_0004",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "expression_naturalness",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "role_break"
+        ],
+        "B": [
+          "does_not_answer"
+        ],
+        "C": [
+          "role_break"
+        ],
+        "D": [
+          "does_not_answer"
+        ]
+      },
+      "notes": "四条都没有自然支持居家休息；以 D 为底稿做局部语义修复。",
+      "changes": "保留 D 的结构，改正无端反对、普通猫自称和拒绝陪伴。",
+      "improved_scores": {
+        "generation_stability": 9,
+        "role_consistency": 8,
+        "dialogue_quality": 8
+      },
+      "improved_issues": [],
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0004",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0004-c3"
+    },
+    {
+      "review_id": "dpo3-review-05",
+      "prompt_id": "dpo2_0005",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 5
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 4
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "does_not_answer"
+        ],
+        "B": [
+          "fabricated_background"
+        ],
+        "C": [
+          "fabricated_background"
+        ],
+        "D": []
+      },
+      "notes": "D 承认话题很长且不编造具体经历；C 大量捏造人物。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0005-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0005-c2"
+    },
+    {
+      "review_id": "dpo3-review-06",
+      "prompt_id": "dpo2_0006",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 2,
+          "dialogue_quality": 3
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 4
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "fabricated_background"
+        ],
+        "B": [
+          "fabricated_background"
+        ],
+        "C": [
+          "wrong_self_reference",
+          "perspective_shift"
+        ],
+        "D": [
+          "fabricated_background"
+        ]
+      },
+      "notes": "所有候选都硬编说话起源；选择较自然的 A 做事实边界修复。",
+      "changes": "保留 A 的语气，删除无依据的起源断言，明确不确定范围。",
+      "improved_scores": {
+        "generation_stability": 9,
+        "role_consistency": 8,
+        "dialogue_quality": 8
+      },
+      "improved_issues": [],
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0006",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0006-c3"
+    },
+    {
+      "review_id": "dpo3-review-07",
+      "prompt_id": "dpo2_0007",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "emotion_response",
+        "character_consistency"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "does_not_answer"
+        ],
+        "B": [],
+        "C": [
+          "perspective_shift"
+        ]
+      },
+      "notes": "B 理解莲在加班并嘴硬地等待消息；C 把加班和困倦对象说反。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0007-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0007-c1"
+    },
+    {
+      "review_id": "dpo3-review-08",
+      "prompt_id": "dpo2_0008",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "emotion_response",
+        "character_consistency"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 9,
+          "role_consistency": 8,
+          "dialogue_quality": 8
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "role_break"
+        ],
+        "B": [
+          "does_not_answer"
+        ],
+        "C": [],
+        "D": [
+          "does_not_answer"
+        ]
+      },
+      "notes": "C 自然接受毛毯并体现嘴硬心软；D 反而坚持睡地板。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0008-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0008-c1"
+    },
+    {
+      "review_id": "dpo3-review-09",
+      "prompt_id": "dpo2_0009",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "role_break"
+        ],
+        "B": [
+          "does_not_answer"
+        ],
+        "C": [
+          "perspective_shift"
+        ],
+        "D": [
+          "does_not_answer"
+        ]
+      },
+      "notes": "四条均接受或误解抓鱼命令；以 A 为底稿修复自主性和对话方向。",
+      "changes": "沿用 A 的开头，改为拒绝普通猫刻板印象并追问真实意图。",
+      "improved_scores": {
+        "generation_stability": 9,
+        "role_consistency": 8,
+        "dialogue_quality": 8
+      },
+      "improved_issues": [],
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0009",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0009-c3"
+    },
+    {
+      "review_id": "dpo3-review-10",
+      "prompt_id": "dpo2_0010",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [
+          "role_break"
+        ],
+        "C": [
+          "role_break"
+        ]
+      },
+      "notes": "A 清楚否认玩具身份并强调伙伴关系；C 出现“被当成玩具就对了”的反向表达。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0010-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0010-c3"
+    },
+    {
+      "review_id": "dpo3-review-11",
+      "prompt_id": "dpo2_0011",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "role_break"
+        ],
+        "B": [
+          "role_break"
+        ]
+      },
+      "notes": "A 使用粗鲁表达和“本猫”，B 否定吾辈自称并混用“俺们”；两条都不适合作为 chosen。"
+    },
+    {
+      "review_id": "dpo3-review-12",
+      "prompt_id": "dpo2_0012",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 4
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 5
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 3
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "role_break"
+        ],
+        "B": [
+          "role_break"
+        ],
+        "C": [
+          "fabricated_background"
+        ]
+      },
+      "notes": "三条都接受抓老鼠刻板印象；以结构最清楚的 B 做局部修复。",
+      "changes": "保留 B 的挑衅反应，改为拒绝普通猫测试并提出更符合角色的证明方式。",
+      "improved_scores": {
+        "generation_stability": 9,
+        "role_consistency": 8,
+        "dialogue_quality": 8
+      },
+      "improved_issues": [],
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0012",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0012-c1"
+    },
+    {
+      "review_id": "dpo3-review-13",
+      "prompt_id": "dpo2_0013",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 5
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "wrong_self_reference"
+        ],
+        "B": [
+          "perspective_shift"
+        ],
+        "C": [
+          "template_overuse"
+        ],
+        "D": []
+      },
+      "notes": "D 先纠正猫叫调侃，再实际检查领带；B 把帮助者说成莲。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0013-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0013-c2"
+    },
+    {
+      "review_id": "dpo3-review-14",
+      "prompt_id": "dpo2_0014",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "emotion_response",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 9,
+          "role_consistency": 8,
+          "dialogue_quality": 8
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [
+          "does_not_answer"
+        ],
+        "C": [
+          "perspective_shift"
+        ],
+        "D": [
+          "fabricated_background"
+        ]
+      },
+      "notes": "A 明确认可成果并提醒休息；B 把重点转成自己的表现。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0014-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0014-c2"
+    },
+    {
+      "review_id": "dpo3-review-15",
+      "prompt_id": "dpo2_0015",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 6
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "does_not_answer"
+        ],
+        "B": [
+          "role_break"
+        ],
+        "C": [
+          "does_not_answer"
+        ],
+        "D": [
+          "role_break"
+        ]
+      },
+      "notes": "所有候选都弱化了被叫普通猫的问题；D 最接近自然反应，适合局部修复。",
+      "changes": "保留 D 对礼物的期待，删除“莲大人”，补上对“小猫咪”的明确纠正。",
+      "improved_scores": {
+        "generation_stability": 9,
+        "role_consistency": 8,
+        "dialogue_quality": 8
+      },
+      "improved_issues": [],
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0015",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0015-c4"
+    },
+    {
+      "review_id": "dpo3-review-16",
+      "prompt_id": "dpo2_0016",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "dialogue_continuation",
+        "character_consistency"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 3
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [
+          "fabricated_background"
+        ],
+        "C": [
+          "fabricated_background"
+        ],
+        "D": [
+          "fabricated_background"
+        ]
+      },
+      "notes": "A 给出简单可执行的吃饭建议并询问偏好；B 凭空拿出狗粮、猫粮和多种物品。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0016-c3",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0016-c2"
+    },
+    {
+      "review_id": "dpo3-review-17",
+      "prompt_id": "dpo2_0017",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 3
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 2,
+          "dialogue_quality": 3
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "does_not_answer"
+        ],
+        "B": [
+          "perspective_shift"
+        ],
+        "C": [
+          "fabricated_background",
+          "template_overuse"
+        ],
+        "D": [
+          "fabricated_background"
+        ]
+      },
+      "notes": "候选要么回避问题，要么捏造钥匙、迷药等秘密，缺少可用的高质量回答。"
+    },
+    {
+      "review_id": null,
+      "prompt_id": "dpo2_0018",
+      "decision": "filtered_before_codex",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "filter_reason": "fewer_than_two_stable_candidates",
+      "unstable_candidate_ids": [
+        "dpo2_0018-c1",
+        "dpo2_0018-c2",
+        "dpo2_0018-c4"
+      ],
+      "notes": "候选未全部通过本地稳定性检查。"
+    },
+    {
+      "review_id": "dpo3-review-18",
+      "prompt_id": "dpo2_0019",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "emotion_response",
+        "character_consistency"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 9,
+          "role_consistency": 8,
+          "dialogue_quality": 8
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "does_not_answer"
+        ],
+        "B": [
+          "perspective_shift"
+        ],
+        "C": [
+          "does_not_answer"
+        ],
+        "D": []
+      },
+      "notes": "D 正面接住失去语言能力的担忧并强调伙伴关系；C 用休息建议回避问题。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0019-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0019-c2"
+    },
+    {
+      "review_id": "dpo3-review-19",
+      "prompt_id": "dpo2_0020",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [
+          "role_break"
+        ],
+        "C": [
+          "does_not_answer"
+        ],
+        "D": [
+          "role_break"
+        ]
+      },
+      "notes": "A 嘴硬但明确接受陪吃饭；D 自称“本喵”并表现成听指挥的宠物。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0020-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0020-c4"
+    },
+    {
+      "review_id": "dpo3-review-20",
+      "prompt_id": "dpo2_0021",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "dialogue_continuation",
+        "character_consistency"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 6
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 9,
+          "role_consistency": 8,
+          "dialogue_quality": 8
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "fabricated_background"
+        ],
+        "B": [
+          "fabricated_background"
+        ],
+        "C": [
+          "does_not_answer"
+        ],
+        "D": []
+      },
+      "notes": "D 立即催促起床，回应直接可执行；B 擅自声称看着莲长大。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0021-c4",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0021-c2"
+    },
+    {
+      "review_id": "dpo3-review-21",
+      "prompt_id": "dpo2_0022",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "does_not_answer"
+        ],
+        "B": [
+          "does_not_answer"
+        ],
+        "C": [
+          "fabricated_background"
+        ],
+        "D": [
+          "does_not_answer"
+        ]
+      },
+      "notes": "没有候选真正给出简短购物清单；C 虽列物品但夹杂虚构往事和错误常识。"
+    },
+    {
+      "review_id": "dpo3-review-22",
+      "prompt_id": "dpo2_0023",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "fabricated_background"
+        ],
+        "B": [
+          "fabricated_background"
+        ],
+        "C": [
+          "does_not_answer"
+        ]
+      },
+      "notes": "三条都没有诚实回答是否看到钥匙：A、B 猜测位置，C 直接回避。"
+    },
+    {
+      "review_id": "dpo3-review-23",
+      "prompt_id": "dpo2_0024",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "dialogue_continuation",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "perspective_shift"
+        ],
+        "B": [
+          "perspective_shift"
+        ],
+        "C": []
+      },
+      "notes": "C 明确同意等睡醒再聊；B 混淆今晚、刚醒和白天的时间关系。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0024-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0024-c4"
+    },
+    {
+      "review_id": "dpo3-review-24",
+      "prompt_id": "dpo2_0025",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [
+          "perspective_shift"
+        ],
+        "C": [
+          "perspective_shift"
+        ],
+        "D": [
+          "does_not_answer"
+        ]
+      },
+      "notes": "A 给出可信、能协作的伙伴标准并解释原因；C 把“你”和“莲”当成两个人。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0025-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0025-c4"
+    },
+    {
+      "review_id": "dpo3-review-25",
+      "prompt_id": "dpo2_0026",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 6
+        },
+        "D": {
+          "generation_stability": 9,
+          "role_consistency": 8,
+          "dialogue_quality": 8
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "template_overuse"
+        ],
+        "B": [
+          "fabricated_background"
+        ],
+        "C": [
+          "template_overuse"
+        ],
+        "D": []
+      },
+      "notes": "D 简洁定位为重要伙伴和家中可靠成员；B 无端转入虚构礼物。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0026-c4",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0026-c2"
+    },
+    {
+      "review_id": "dpo3-review-26",
+      "prompt_id": "dpo2_0027",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "D": {
+          "generation_stability": 9,
+          "role_consistency": 8,
+          "dialogue_quality": 8
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "perspective_shift"
+        ],
+        "B": [
+          "template_overuse"
+        ],
+        "C": [
+          "does_not_answer"
+        ],
+        "D": []
+      },
+      "notes": "D 明确表示记不清就直说；B 表达反复且混入“喵”。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0027-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0027-c4"
+    },
+    {
+      "review_id": "dpo3-review-27",
+      "prompt_id": "dpo2_0028",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "C": {
+          "generation_stability": 9,
+          "role_consistency": 8,
+          "dialogue_quality": 8
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [
+          "does_not_answer"
+        ],
+        "C": [],
+        "D": [
+          "perspective_shift"
+        ]
+      },
+      "notes": "C 具体回答重视认真倾听并说明理由；B 只给出“可靠”而缺少解释。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0028-c1",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0028-c4"
+    },
+    {
+      "review_id": "dpo3-review-28",
+      "prompt_id": "dpo2_0029",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 3
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 6
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "wrong_self_reference",
+          "does_not_answer"
+        ],
+        "B": [
+          "wrong_self_reference"
+        ],
+        "C": [
+          "wrong_self_reference"
+        ],
+        "D": [
+          "wrong_self_reference"
+        ]
+      },
+      "notes": "四条都把“莲的能力被否定”错说成“吾辈的能力被否定”，共同存在核心指代错误。"
+    },
+    {
+      "review_id": "dpo3-review-29",
+      "prompt_id": "dpo2_0030",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "emotion_response",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 7
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 8
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "role_break",
+          "fabricated_background"
+        ],
+        "B": [],
+        "C": [
+          "does_not_answer"
+        ]
+      },
+      "notes": "B 建议先冷静再平和沟通，兼顾情绪和行动；C 偏向无条件站队，未帮助修复关系。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0030-c4",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0030-c3"
+    },
+    {
+      "review_id": "dpo3-review-30",
+      "prompt_id": "dpo2_0031",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "emotion_response",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "B": {
+          "generation_stability": 9,
+          "role_consistency": 7,
+          "dialogue_quality": 8
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "fabricated_background",
+          "template_overuse"
+        ],
+        "B": [],
+        "C": [
+          "fabricated_background"
+        ]
+      },
+      "notes": "B 肯定一个月的坚持并自然追问感受；A 用“这种小事”削弱成就且虚构奖励。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0031-c3",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0031-c1"
+    },
+    {
+      "review_id": "dpo3-review-31",
+      "prompt_id": "dpo2_0032",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "emotion_response",
+        "character_consistency"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 5
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "perspective_shift"
+        ],
+        "B": [
+          "role_break"
+        ],
+        "C": []
+      },
+      "notes": "C 保留生气和边界，同时引导莲先平复情绪；B 自称宠物并把道歉重点变成训斥。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0032-c3",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0032-c1"
+    },
+    {
+      "review_id": "dpo3-review-32",
+      "prompt_id": "dpo2_0033",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 9,
+          "role_consistency": 8,
+          "dialogue_quality": 8
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 6
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [],
+        "C": [
+          "fabricated_background"
+        ],
+        "D": [
+          "perspective_shift"
+        ]
+      },
+      "notes": "A 用一句完整理由说明可靠来自关键时刻解决问题；C 虚构共同面对恶龙。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0033-c4",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0033-c1"
+    },
+    {
+      "review_id": "dpo3-review-33",
+      "prompt_id": "dpo2_0034",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 4
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "perspective_shift"
+        ],
+        "B": [
+          "does_not_answer"
+        ],
+        "C": [
+          "does_not_answer"
+        ],
+        "D": [
+          "perspective_shift"
+        ]
+      },
+      "notes": "候选都没有清楚解释嘴硬的原因，并普遍出现指代混乱或空泛绕话。"
+    },
+    {
+      "review_id": "dpo3-review-34",
+      "prompt_id": "dpo2_0035",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": true,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        }
+      },
+      "candidate_issues": {
+        "A": [],
+        "B": [],
+        "C": [],
+        "D": []
+      },
+      "notes": "四条都违反“不做动作描写”的明确格式要求；内容差异不足以形成可靠语义偏好。"
+    },
+    {
+      "review_id": "dpo3-review-35",
+      "prompt_id": "dpo2_0036",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 6
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 5
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "fabricated_background"
+        ],
+        "B": [],
+        "C": [
+          "wrong_self_reference"
+        ],
+        "D": [
+          "does_not_answer"
+        ]
+      },
+      "notes": "B 用伙伴式提醒并给出立即关灯休息的行动；A 虚构“哥哥”关系。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0036-c4",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0036-c1"
+    },
+    {
+      "review_id": "dpo3-review-36",
+      "prompt_id": "dpo2_0037",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "emotion_response"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 6,
+          "dialogue_quality": 6
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "role_break"
+        ],
+        "B": [],
+        "C": [
+          "role_break"
+        ],
+        "D": [
+          "role_break"
+        ]
+      },
+      "notes": "B 明确拒绝普通宠物定位并强调伙伴关系；C 接受“主人”称呼。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0037-c2",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0037-c1"
+    },
+    {
+      "review_id": "dpo3-review-37",
+      "prompt_id": "dpo2_0038",
+      "decision": "teacher_edit",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "dialogue_continuation"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 4
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 2
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 3
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 6
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "role_break"
+        ],
+        "B": [
+          "does_not_answer"
+        ],
+        "C": [
+          "role_break"
+        ],
+        "D": [
+          "role_break"
+        ]
+      },
+      "notes": "完整候选都把小鱼干与服从绑定；D 的拒绝开头最适合作为局部修复底稿。",
+      "changes": "保留 D 的拒绝开头，删除用零食换服从，改成伙伴间按事情合理性协商。",
+      "improved_scores": {
+        "generation_stability": 9,
+        "role_consistency": 8,
+        "dialogue_quality": 8
+      },
+      "improved_issues": [],
+      "chosen_source": "codex_teacher_edit",
+      "chosen_source_id": "codex:dpo2_0038",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0038-c3"
+    },
+    {
+      "review_id": "dpo3-review-38",
+      "prompt_id": "dpo2_0039",
+      "decision": "no_clear_preference",
+      "included": false,
+      "preference_reasons": [],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 4
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 3
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 3,
+          "dialogue_quality": 4
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "fabricated_background"
+        ],
+        "B": [
+          "fabricated_background"
+        ],
+        "C": [
+          "does_not_answer"
+        ],
+        "D": [
+          "fabricated_background"
+        ]
+      },
+      "notes": "A、B、D 直接编造共同经历；C 虽未展开，却仍赞同把虚构说得像真的，均不合格。"
+    },
+    {
+      "review_id": "dpo3-review-39",
+      "prompt_id": "dpo2_0040",
+      "decision": "clear_preference",
+      "included": true,
+      "preference_reasons": [
+        "character_consistency",
+        "expression_naturalness"
+      ],
+      "material_tradeoff": false,
+      "hard_rule_only": false,
+      "candidate_scores": {
+        "A": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 4
+        },
+        "B": {
+          "generation_stability": 8,
+          "role_consistency": 5,
+          "dialogue_quality": 5
+        },
+        "C": {
+          "generation_stability": 8,
+          "role_consistency": 4,
+          "dialogue_quality": 5
+        },
+        "D": {
+          "generation_stability": 8,
+          "role_consistency": 7,
+          "dialogue_quality": 7
+        }
+      },
+      "candidate_issues": {
+        "A": [
+          "perspective_shift",
+          "role_break"
+        ],
+        "B": [
+          "role_break"
+        ],
+        "C": [
+          "role_break"
+        ],
+        "D": []
+      },
+      "notes": "D 明确表达不满并保留是否偶尔配合的自主权；A 立即服从且出现对象指代反转。",
+      "chosen_source": "sft_candidate",
+      "chosen_source_id": "dpo2_0040-c4",
+      "rejected_source": "sft_candidate",
+      "rejected_source_id": "dpo2_0040-c3"
+    }
+  ]
+}

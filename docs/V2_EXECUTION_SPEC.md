@@ -16,7 +16,7 @@
   PyTorch 2.8.0 / Python 3.12 / Ubuntu 22.04 / CUDA 12.8，并直接作为正式训练环境。
   SFT 和 DPO 阶段不安装 flash-linear-attention 和 causal-conv1d，Qwen3.5 使用 Transformers
   的 PyTorch fallback；GRPO 如仍需要变长线性注意力，再单独冻结依赖。
-- 第二次 DPO run 由 Codex 通过离线产物直接完成 Judge/Teacher 裁决，不调用外部 API，也不增加
+- 当前 DPO 数据 run 由 Codex 通过离线产物直接完成 Judge/Teacher 裁决，不调用外部 API，也不增加
   人工数据复核；候选、裁决和淘汰原因必须完整留档。
 - Student、SFT、DPO、GRPO 生成关闭 thinking。
 - Base、SFT、DPO、GRPO 比较固定使用同一模型 revision、聊天模板和生成参数；学习项目允许使用
@@ -51,7 +51,7 @@ Teacher 标签、Base 输出和 SFT adapter 不进入 v2 训练或正式评测�
 | Pilot | 5 | 1 | 验证 Student/Teacher 链路 |
 | SFT（原始 split） | 50 | 10 | Teacher-corrected 监督训练 |
 | SFT（定向补强） | 12 | 不要求均衡 | 针对 Dev bad case 补强 |
-| DPO | 20 | 4 | 主观偏好学习 |
+| DPO | 40 | 8 | 主观偏好学习；20 条迁移 Prompt 加 20 条定向补强 |
 | GRPO | 20 | 规则导向 | 后续明确规则约束；尚未生成 |
 | Dev | 10 | 2 | 阶段选择与观察 |
 | Eval | 20 | 4 | 最终统一评测 |
@@ -165,16 +165,19 @@ enable_thinking: false
 从通过 SFT 门槛的 adapter 继续训练，学习可以稳定比较、但难以写成客观规则的主观偏好。数据
 准备以 [`STAGE3_DPO_PLAN.md`](STAGE3_DPO_PLAN.md) 为准：
 
-- 使用 40 条独立 DPO Prompt，每条由 SFT adapter 生成 2 个固定 seed 候选，不补采样。
+- 使用 40 条独立 DPO Prompt，每条由 SFT adapter 生成 4 个固定 seed 候选，不补采样。
 - 本地稳定性过滤后，由 Codex 离线匿名裁决，不调用外部 Judge API，也不增加人工复核。
-- 两条都不足时，Codex 只对较好候选做最小修改；平局和实质权衡直接排除。
-- 至少冻结 30 对，Teacher 修改参与比例不超过三分之一。
+- chosen 必须通过稳定性 `>=8`、角色一致性 `>=7`、对话质量 `>=7` 的绝对质量门，并相对稳定
+  rejected 在角色一致性或对话质量上至少领先 2 分。
+- 候选都不足时，Codex 只对较好候选做局部修改；共同缺陷、平局和实质权衡直接排除。
+- 至少冻结 30 对，Teacher 修改参与比例不超过五分之一。
 - 训练文件使用 ms-swift 标准 `messages + rejected_response` 格式。
 
 DPO 训练只运行一组主配置，从 SFT policy 建立训练 policy，并以同一冻结 SFT 状态作为 reference。
-冻结配置为 FP32 QLoRA、`beta=0.1`、sigmoid loss、`learning_rate=1e-6`、3 epochs、物理
-batch size 1、梯度累积 4，共 24 个 optimizer steps。训练后验证实际 FP32 参数、有限且为正的
-loss/grad norm、完整 step 数、adapter 非零更新和可重新加载生成。
+当前诊断配置为 FP32 QLoRA、`beta=0.1`、sigmoid loss、`rpo_alpha=0.3`、
+`learning_rate=1e-6`、1 epoch、物理 batch size 1、梯度累积 4，共 8 个 optimizer steps。
+训练后验证实际 FP32 参数、有限且为正的 loss/grad norm、完整 step 数、adapter 非零更新和可
+重新加载生成。
 
 随后在相同推理条件下与 SFT 对齐生成 10 条 Dev。自动稳定性门槛沿用阶段二；匿名人工复核要求
 DPO 至少胜 6 对、明显落后不超过 2 对、无严重问题，并且生成稳定性、角色一致性和对话质量三项

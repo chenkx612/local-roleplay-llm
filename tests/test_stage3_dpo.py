@@ -33,7 +33,7 @@ from roleplay.stage3_dpo import (
 )
 
 
-def dpo_rows(count=30):
+def dpo_rows(count=31):
     return [
         {
             "messages": [
@@ -141,18 +141,18 @@ def review_artifacts(run_dir: Path, *, submitted=True, automatic=True) -> None:
 class FrozenInputTests(unittest.TestCase):
     def test_accepts_repository_data_and_config(self):
         rows = validate_training_rows(
-            Path("data/runs/morgana-v2/dpo_train_run2.jsonl")
+            Path("data/runs/morgana-v2/dpo_train_run3.jsonl")
         )
         steps = validate_training_config(
             _load_yaml(Path("configs/morgana_v2_dpo.yaml"))
         )
 
-        self.assertEqual(len(rows), 30)
+        self.assertEqual(len(rows), 31)
         self.assertEqual(steps, 8)
 
     def test_rejects_hash_count_schema_roles_and_equal_answers(self):
         cases = []
-        cases.append(dpo_rows(29))
+        cases.append(dpo_rows(30))
         wrong_fields = dpo_rows()
         wrong_fields[0]["extra"] = True
         cases.append(wrong_fields)
@@ -229,7 +229,7 @@ class FrozenInputTests(unittest.TestCase):
 class RunWorkflowTests(unittest.TestCase):
     def _run(self, root: Path, *, fail_training=False):
         repo = root / "repo"
-        train_path = repo / "data/runs/morgana-v2/dpo_train_run2.jsonl"
+        train_path = repo / "data/runs/morgana-v2/dpo_train_run3.jsonl"
         dev_path = repo / "data/runs/morgana-v2/dev.jsonl"
         system_path = repo / "data/runs/morgana-v2/system_prompt.txt"
         config_path = repo / "configs/morgana_v2_dpo.yaml"

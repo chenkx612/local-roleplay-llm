@@ -1,4 +1,4 @@
-"""Prepare and freeze preference data for the second morgana-v2 DPO run."""
+"""Prepare and freeze high-quality Codex-reviewed DPO preference data."""
 
 from __future__ import annotations
 
@@ -42,9 +42,9 @@ STYLE_EXAMPLES_PATH = ROOT / "data/runs/morgana-v2/inputs/style_examples.jsonl"
 SYSTEM_PROMPT_PATH = ROOT / "data/runs/morgana-v2/system_prompt.txt"
 SFT_ADAPTER_PATH = ROOT / "output/morgana-v2/stage2-sft/4/adapter"
 OUTPUT_ROOT = ROOT / "output/morgana-v2/stage3-dpo/data"
-DEFAULT_RUN_ID = "20260810-dpo-data-2"
-DEFAULT_TRAIN_OUTPUT = ROOT / "data/runs/morgana-v2/dpo_train_run2.jsonl"
-DEFAULT_AUDIT_OUTPUT = ROOT / "data/runs/morgana-v2/dpo_train_audit_run2.json"
+DEFAULT_RUN_ID = "20260810-dpo-data-3"
+DEFAULT_TRAIN_OUTPUT = ROOT / "data/runs/morgana-v2/dpo_train_run3.jsonl"
+DEFAULT_AUDIT_OUTPUT = ROOT / "data/runs/morgana-v2/dpo_train_audit_run3.json"
 
 FROZEN_HASHES = {
     PROMPTS_PATH: "f60f27d858a1fb333d14f3c79d10d45086642a57475bfcdb816f15745bc1c0c7",
@@ -62,7 +62,7 @@ FROZEN_HASHES = {
     ),
 }
 
-CANDIDATES_PER_PROMPT = 2
+CANDIDATES_PER_PROMPT = 4
 BASE_SEED = 20260810
 REVIEW_ORDER_SEED = 20260810
 MIN_FINAL_PAIRS = 30
@@ -81,10 +81,34 @@ PREFERENCE_REASONS = frozenset(
 CODEX_DECISIONS = frozenset(
     {"clear_preference", "no_clear_preference", "teacher_edit"}
 )
+SCORE_DIMENSIONS = (
+    "generation_stability",
+    "role_consistency",
+    "dialogue_quality",
+)
+QUALITY_THRESHOLDS = {
+    "generation_stability": 8,
+    "role_consistency": 7,
+    "dialogue_quality": 7,
+}
+MIN_REJECTED_STABILITY = 7
+MIN_PREFERENCE_GAP = 2
+MAX_OTHER_DIMENSION_REGRESSION = 1
+ISSUE_CODES = frozenset(
+    {
+        "unstable",
+        "wrong_self_reference",
+        "perspective_shift",
+        "fabricated_background",
+        "role_break",
+        "does_not_answer",
+        "template_overuse",
+    }
+)
 PROMPT_ID_PATTERN = re.compile(r"dpo2_(\d{4})\Z")
-MIN_TEACHER_SIMILARITY = 0.60
-MIN_TEACHER_LENGTH_RATIO = 0.70
-MAX_TEACHER_LENGTH_RATIO = 1.30
+MIN_TEACHER_SIMILARITY = 0.40
+MIN_TEACHER_LENGTH_RATIO = 0.50
+MAX_TEACHER_LENGTH_RATIO = 1.50
 
 GENERATION = {
     "max_tokens": MAX_TOKENS,
@@ -97,14 +121,18 @@ GENERATION = {
 }
 
 CONTRACT = {
-    "schema_version": 2,
+    "schema_version": 3,
     "reviewer": "codex_artifact_handoff",
     "candidates_per_prompt": CANDIDATES_PER_PROMPT,
     "candidate_rounds": 1,
     "generation": GENERATION,
     "expected_prompts": EXPECTED_PROMPT_COUNT,
     "minimum_final_pairs": MIN_FINAL_PAIRS,
-    "teacher_pair_fraction_max": "1/3",
+    "quality_thresholds": QUALITY_THRESHOLDS,
+    "minimum_rejected_stability": MIN_REJECTED_STABILITY,
+    "minimum_preference_gap": MIN_PREFERENCE_GAP,
+    "maximum_other_dimension_regression": MAX_OTHER_DIMENSION_REGRESSION,
+    "teacher_pair_fraction_max": "1/5",
     "teacher_edit": {
         "minimum_similarity": MIN_TEACHER_SIMILARITY,
         "length_ratio": [MIN_TEACHER_LENGTH_RATIO, MAX_TEACHER_LENGTH_RATIO],
@@ -177,14 +205,14 @@ def load_prompts(path: Path = PROMPTS_PATH) -> list[dict[str, Any]]:
     rows = load_jsonl(path)
     if len(rows) != EXPECTED_PROMPT_COUNT:
         raise DPODataError(
-            f"DPO run2 Prompt 必须为 {EXPECTED_PROMPT_COUNT} 条，实际 {len(rows)}"
+            f"DPO Prompt 必须为 {EXPECTED_PROMPT_COUNT} 条，实际 {len(rows)}"
         )
     ids: set[str] = set()
     users: set[str] = set()
     scenarios: Counter[str] = Counter()
     for index, row in enumerate(rows, 1):
         if set(row) != {"id", "scenario", "target_goals", "user"}:
-            raise DPODataError(f"DPO run2 Prompt 第 {index} 条字段不正确")
+            raise DPODataError(f"DPO Prompt 第 {index} 条字段不正确")
         prompt_id = row["id"]
         match = (
             PROMPT_ID_PATTERN.fullmatch(prompt_id)
@@ -192,27 +220,27 @@ def load_prompts(path: Path = PROMPTS_PATH) -> list[dict[str, Any]]:
             else None
         )
         if not match or int(match.group(1)) != index:
-            raise DPODataError(f"DPO run2 Prompt 第 {index} 条 id 不正确")
+            raise DPODataError(f"DPO Prompt 第 {index} 条 id 不正确")
         user = row["user"]
         scenario = row["scenario"]
         if not isinstance(user, str) or not user.strip():
-            raise DPODataError(f"DPO run2 Prompt 第 {index} 条 user 无效")
+            raise DPODataError(f"DPO Prompt 第 {index} 条 user 无效")
         if scenario not in EXPECTED_SCENARIOS:
-            raise DPODataError(f"DPO run2 Prompt 第 {index} 条 scenario 无效")
+            raise DPODataError(f"DPO Prompt 第 {index} 条 scenario 无效")
         if row["target_goals"] != [
             "generation_stability",
             "character_consistency",
             "dialogue_quality",
         ]:
-            raise DPODataError(f"DPO run2 Prompt 第 {index} 条 target_goals 无效")
+            raise DPODataError(f"DPO Prompt 第 {index} 条 target_goals 无效")
         normalized = _canonical_user(user)
         if prompt_id in ids or normalized in users:
-            raise DPODataError("DPO run2 Prompt 包含重复 id 或 user")
+            raise DPODataError("DPO Prompt 包含重复 id 或 user")
         ids.add(prompt_id)
         users.add(normalized)
         scenarios[scenario] += 1
     if set(scenarios) != EXPECTED_SCENARIOS or set(scenarios.values()) != {8}:
-        raise DPODataError(f"DPO run2 Prompt 场景必须各 8 条: {dict(scenarios)}")
+        raise DPODataError(f"DPO Prompt 场景必须各 8 条: {dict(scenarios)}")
     return rows
 
 
@@ -231,7 +259,7 @@ def validate_cross_split_uniqueness(
             user = row.get("user")
             if isinstance(user, str) and _canonical_user(user) in dpo_users:
                 raise DPODataError(
-                    f"DPO run2 Prompt 与其他 split 重复: {path} user={user}"
+                    f"DPO Prompt 与其他 split 重复: {path} user={user}"
                 )
 
 
@@ -311,7 +339,9 @@ def _validate_candidate_rows(
     if set(counts) != set(prompt_by_id) or set(counts.values()) != {
         CANDIDATES_PER_PROMPT
     }:
-        raise DPODataError("每条 Prompt 必须恰好包含 2 个候选")
+        raise DPODataError(
+            f"每条 Prompt 必须恰好包含 {CANDIDATES_PER_PROMPT} 个候选"
+        )
 
 
 def candidate_set_sha256(candidates: Sequence[dict[str, Any]]) -> str:
@@ -397,20 +427,23 @@ def build_codex_review_artifacts(
             for row in candidates
             if row["prompt_id"] == prompt["id"] and is_stable_candidate(row)
         ]
-        if len(stable) != CANDIDATES_PER_PROMPT:
+        if len(stable) < 2:
             unresolved.append(prompt["id"])
             continue
         rng.shuffle(stable)
-        labels = {"A": stable[0], "B": stable[1]}
-        review_id = f"dpo2-review-{len(packet_items) + 1:02d}"
+        labels = {
+            chr(ord("A") + index): row for index, row in enumerate(stable)
+        }
+        review_id = f"dpo3-review-{len(packet_items) + 1:02d}"
         packet_items.append(
             {
                 "review_id": review_id,
                 "prompt_id": prompt["id"],
                 "scenario": prompt["scenario"],
                 "user": prompt["user"],
-                "answer_a": labels["A"]["assistant"],
-                "answer_b": labels["B"]["assistant"],
+                "answers": {
+                    label: row["assistant"] for label, row in labels.items()
+                },
             }
         )
         key_items.append(
@@ -429,39 +462,49 @@ def build_codex_review_artifacts(
             }
         )
     packet = {
-        "schema_version": 2,
+        "schema_version": 3,
         "reviewer": "codex",
         "instructions": (
-            "逐条匿名裁决。两条均合格且存在清晰主观偏好时使用 "
-            "clear_preference；平局、实质权衡或仅有硬规则差异时使用 "
-            "no_clear_preference；两条都不适合作为 chosen 时，仅可对较好一条"
-            "做最小修改并使用 teacher_edit。"
+            "逐条匿名裁决并给所有候选绝对评分与问题代码。只有达到绝对质量门槛，"
+            "且相对一个稳定 rejected 在角色一致性或对话质量上至少领先 2 分时，"
+            "才可使用 clear_preference；否则使用 no_clear_preference，或由 Codex "
+            "编辑较好候选并使用 teacher_edit。chosen 不得包含任何问题代码。"
         ),
         "references": {
             "persona": str(PERSONA_PATH.relative_to(ROOT)),
             "style_examples": str(STYLE_EXAMPLES_PATH.relative_to(ROOT)),
             "system_prompt": str(SYSTEM_PROMPT_PATH.relative_to(ROOT)),
         },
+        "score_dimensions": list(SCORE_DIMENSIONS),
+        "quality_thresholds": QUALITY_THRESHOLDS,
+        "minimum_rejected_stability": MIN_REJECTED_STABILITY,
+        "minimum_preference_gap": MIN_PREFERENCE_GAP,
+        "allowed_issue_codes": sorted(ISSUE_CODES),
         "allowed_preference_reasons": sorted(PREFERENCE_REASONS),
         "items": packet_items,
     }
     key = {
-        "schema_version": 2,
+        "schema_version": 3,
         "order_seed": order_seed,
         "items": key_items,
     }
     results = {
-        "schema_version": 2,
+        "schema_version": 3,
         "reviewer": "codex",
         "results": [
             {
                 "review_id": row["review_id"],
                 "decision": None,
                 "source_label": None,
+                "rejected_label": None,
+                "candidate_scores": {},
+                "candidate_issues": {},
                 "preference_reasons": [],
                 "material_tradeoff": None,
                 "hard_rule_only": None,
                 "improved_assistant": None,
+                "improved_scores": None,
+                "improved_issues": None,
                 "changes": "",
                 "notes": "",
             }
@@ -481,7 +524,7 @@ def _validate_teacher_edit(source: str, improved: str, review_id: str) -> None:
     improved_length = len(improved.strip())
     ratio = improved_length / source_length if source_length else 0.0
     if not MIN_TEACHER_LENGTH_RATIO <= ratio <= MAX_TEACHER_LENGTH_RATIO:
-        raise DPODataError(f"{review_id} Teacher 修改长度变化超过 30%")
+        raise DPODataError(f"{review_id} Teacher 修改长度变化超过 50%")
     similarity = SequenceMatcher(
         None, source.strip(), improved.strip(), autojunk=False
     ).ratio()
@@ -490,6 +533,89 @@ def _validate_teacher_edit(source: str, improved: str, review_id: str) -> None:
             f"{review_id} Teacher 修改相似度 {similarity:.3f} 低于 "
             f"{MIN_TEACHER_SIMILARITY:.2f}"
         )
+
+
+def _validate_scores(
+    value: Any, expected_labels: set[str], review_id: str
+) -> dict[str, dict[str, int]]:
+    if not isinstance(value, dict) or set(value) != expected_labels:
+        raise DPODataError(f"{review_id} candidate_scores 与候选标签不一致")
+    for label, scores in value.items():
+        if not isinstance(scores, dict) or set(scores) != set(SCORE_DIMENSIONS):
+            raise DPODataError(f"{review_id} {label} 评分维度不完整")
+        if any(
+            isinstance(score, bool)
+            or not isinstance(score, int)
+            or not 0 <= score <= 10
+            for score in scores.values()
+        ):
+            raise DPODataError(f"{review_id} {label} 评分必须是 0～10 整数")
+    return value
+
+
+def _validate_issues(
+    value: Any, expected_labels: set[str], review_id: str
+) -> dict[str, list[str]]:
+    if not isinstance(value, dict) or set(value) != expected_labels:
+        raise DPODataError(f"{review_id} candidate_issues 与候选标签不一致")
+    for label, issues in value.items():
+        if (
+            not isinstance(issues, list)
+            or len(issues) != len(set(issues))
+            or any(issue not in ISSUE_CODES for issue in issues)
+        ):
+            raise DPODataError(f"{review_id} {label} 问题代码无效")
+    return value
+
+
+def _validate_single_scores(value: Any, review_id: str) -> dict[str, int]:
+    return _validate_scores({"improved": value}, {"improved"}, review_id)[
+        "improved"
+    ]
+
+
+def _validate_single_issues(value: Any, review_id: str) -> list[str]:
+    return _validate_issues({"improved": value}, {"improved"}, review_id)[
+        "improved"
+    ]
+
+
+def _validate_preference_quality(
+    chosen_scores: dict[str, int],
+    chosen_issues: list[str],
+    rejected_scores: dict[str, int],
+    rejected_issues: list[str],
+    review_id: str,
+) -> None:
+    below = {
+        dimension: score
+        for dimension, score in chosen_scores.items()
+        if score < QUALITY_THRESHOLDS[dimension]
+    }
+    if below or chosen_issues:
+        raise DPODataError(
+            f"{review_id} chosen 未通过绝对质量门槛: scores={below}, "
+            f"issues={chosen_issues}"
+        )
+    if (
+        rejected_scores["generation_stability"] < MIN_REJECTED_STABILITY
+        or "unstable" in rejected_issues
+    ):
+        raise DPODataError(f"{review_id} rejected 不满足稳定性前提")
+    preference_gap = max(
+        chosen_scores["role_consistency"]
+        - rejected_scores["role_consistency"],
+        chosen_scores["dialogue_quality"]
+        - rejected_scores["dialogue_quality"],
+    )
+    if preference_gap < MIN_PREFERENCE_GAP:
+        raise DPODataError(f"{review_id} chosen/rejected 偏好分差不足")
+    if any(
+        chosen_scores[dimension]
+        < rejected_scores[dimension] - MAX_OTHER_DIMENSION_REGRESSION
+        for dimension in SCORE_DIMENSIONS
+    ):
+        raise DPODataError(f"{review_id} chosen 在其他核心维度明显退化")
 
 
 def parse_codex_result(
@@ -503,10 +629,15 @@ def parse_codex_result(
         "review_id",
         "decision",
         "source_label",
+        "rejected_label",
+        "candidate_scores",
+        "candidate_issues",
         "preference_reasons",
         "material_tradeoff",
         "hard_rule_only",
         "improved_assistant",
+        "improved_scores",
+        "improved_issues",
         "changes",
         "notes",
     }
@@ -514,10 +645,20 @@ def parse_codex_result(
         raise DPODataError(f"{review_id} Codex 结果字段不正确")
     decision = result["decision"]
     source_label = result["source_label"]
+    rejected_label = result["rejected_label"]
+    label_set = set(labels)
+    scores = _validate_scores(
+        result["candidate_scores"], label_set, review_id
+    )
+    issues = _validate_issues(
+        result["candidate_issues"], label_set, review_id
+    )
     reasons = result["preference_reasons"]
     tradeoff = result["material_tradeoff"]
     hard_rule_only = result["hard_rule_only"]
     improved = result["improved_assistant"]
+    improved_scores = result["improved_scores"]
+    improved_issues = result["improved_issues"]
     changes = result["changes"]
     notes = result["notes"]
     if decision not in CODEX_DECISIONS:
@@ -535,29 +676,64 @@ def parse_codex_result(
     if decision == "clear_preference":
         if (
             source_label not in labels
+            or rejected_label not in labels
+            or source_label == rejected_label
             or not reasons
             or tradeoff
             or hard_rule_only
             or improved is not None
+            or improved_scores is not None
+            or improved_issues is not None
             or changes
         ):
             raise DPODataError(f"{review_id} clear_preference 语义不一致")
+        _validate_preference_quality(
+            scores[source_label],
+            issues[source_label],
+            scores[rejected_label],
+            issues[rejected_label],
+            review_id,
+        )
     elif decision == "no_clear_preference":
-        if source_label is not None or improved is not None or changes:
+        if (
+            source_label is not None
+            or rejected_label is not None
+            or improved is not None
+            or improved_scores is not None
+            or improved_issues is not None
+            or changes
+        ):
             raise DPODataError(f"{review_id} no_clear_preference 语义不一致")
     else:
         if (
             source_label not in labels
+            or rejected_label not in labels
+            or source_label == rejected_label
             or not reasons
             or tradeoff
             or hard_rule_only
             or not isinstance(improved, str)
             or not improved.strip()
+            or improved_scores is None
+            or improved_issues is None
             or not changes.strip()
         ):
             raise DPODataError(f"{review_id} teacher_edit 语义不一致")
         _validate_teacher_edit(
             labels[source_label]["assistant"], improved.strip(), review_id
+        )
+        parsed_improved_scores = _validate_single_scores(
+            improved_scores, review_id
+        )
+        parsed_improved_issues = _validate_single_issues(
+            improved_issues, review_id
+        )
+        _validate_preference_quality(
+            parsed_improved_scores,
+            parsed_improved_issues,
+            scores[rejected_label],
+            issues[rejected_label],
+            review_id,
         )
     return {
         **result,
@@ -593,7 +769,7 @@ def _load_or_create_summary(run_dir: Path, run_id: str) -> dict[str, Any]:
         if summary.get("contract") != expected["contract"] or summary.get(
             "input_hashes"
         ) != expected["input_hashes"]:
-            raise DPODataError("现有 run 与第二次 DPO run 的冻结配置或输入不一致")
+            raise DPODataError("现有 run 与当前 DPO run 的冻结配置或输入不一致")
         return summary
     run_dir.mkdir(parents=True, exist_ok=True)
     summary = {
@@ -630,7 +806,7 @@ def prepare_run(
         "insufficient_candidates",
         "ready_for_dpo",
     }:
-        print(f"第二次 DPO run 已存在（{summary['status']}）: {run_dir}")
+        print(f"DPO 数据 run 已存在（{summary['status']}）: {run_dir}")
         return run_dir
 
     candidates_path = run_dir / "candidates.jsonl"
@@ -748,11 +924,15 @@ def _load_finalization_inputs(
         if (
             key_row.get("prompt_id") != packet_row.get("prompt_id")
             or not isinstance(labels, dict)
-            or set(labels) != {"A", "B"}
-            or labels["A"].get("assistant") != packet_row.get("answer_a")
-            or labels["B"].get("assistant") != packet_row.get("answer_b")
+            or not 2 <= len(labels) <= CANDIDATES_PER_PROMPT
+            or set(labels) != set(packet_row.get("answers", {}))
+            or any(
+                labels[label].get("assistant")
+                != packet_row["answers"].get(label)
+                for label in labels
+            )
         ):
-            raise DPODataError(f"{review_id} packet/key A/B 映射不一致")
+            raise DPODataError(f"{review_id} packet/key 候选映射不一致")
         result_by_id[review_id] = parse_codex_result(
             result_by_id[review_id], labels
         )
@@ -776,7 +956,7 @@ def finalize_run(
     ) != expected["input_hashes"]:
         raise DPODataError("run 配置或输入哈希与当前冻结契约不一致")
     if train_output.exists() or audit_output.exists():
-        raise DPODataError("第二次 DPO run 的训练集或审计文件已存在，拒绝覆盖")
+        raise DPODataError("DPO 训练集或审计文件已存在，拒绝覆盖")
 
     candidates, packet_by_id, key_by_id, result_by_id = _load_finalization_inputs(
         run_dir, summary
@@ -796,6 +976,8 @@ def finalize_run(
             "preference_reasons": result["preference_reasons"],
             "material_tradeoff": result["material_tradeoff"],
             "hard_rule_only": result["hard_rule_only"],
+            "candidate_scores": result["candidate_scores"],
+            "candidate_issues": result["candidate_issues"],
             "notes": result["notes"],
         }
         if decision == "no_clear_preference":
@@ -803,11 +985,11 @@ def finalize_run(
             continue
         labels = key_by_id[review_id]["labels"]
         source_label = result["source_label"]
+        rejected_label = result["rejected_label"]
         source = labels[source_label]
+        rejected = labels[rejected_label]
         if decision == "clear_preference":
-            rejected_label = "B" if source_label == "A" else "A"
             chosen = source
-            rejected = labels[rejected_label]
         else:
             teacher_pairs += 1
             chosen = {
@@ -815,8 +997,9 @@ def finalize_run(
                 "source": "codex_teacher_edit",
                 "source_id": f"codex:{packet_row['prompt_id']}",
             }
-            rejected = source
             audit_row["changes"] = result["changes"]
+            audit_row["improved_scores"] = result["improved_scores"]
+            audit_row["improved_issues"] = result["improved_issues"]
         train_rows.append(
             {
                 "messages": [
@@ -870,14 +1053,14 @@ def finalize_run(
         raise DPODataError(
             f"有效 Codex 偏好对至少需要 {MIN_FINAL_PAIRS} 条，实际 {len(train_rows)}"
         )
-    if teacher_pairs * 3 > len(train_rows):
+    if teacher_pairs * 5 > len(train_rows):
         raise DPODataError(
-            f"Teacher 修改参与 {teacher_pairs}/{len(train_rows)} 对，超过三分之一"
+            f"Teacher 修改参与 {teacher_pairs}/{len(train_rows)} 对，超过五分之一"
         )
 
     write_jsonl_atomic(train_output, train_rows)
     audit = {
-        "schema_version": 2,
+        "schema_version": 3,
         "source_run": str(run_dir),
         "reviewer": "codex",
         "pairs": len(train_rows),
@@ -909,16 +1092,16 @@ def finalize_run(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="准备 morgana-v2 第二次 DPO run 偏好数据")
+    parser = argparse.ArgumentParser(description="准备 morgana-v2 高质量 DPO 偏好数据")
     subparsers = parser.add_subparsers(dest="command", required=True)
     prepare = subparsers.add_parser(
-        "prepare", help="生成双候选并产出匿名 Codex 裁决包"
+        "prepare", help="生成四候选并产出匿名 Codex 裁决包"
     )
     prepare.add_argument("--run-id", default=DEFAULT_RUN_ID)
     prepare.add_argument("--output-root", type=Path, default=OUTPUT_ROOT)
     prepare.add_argument("--base-model", type=Path, default=BASE_SNAPSHOT)
     finalize = subparsers.add_parser(
-        "finalize", help="校验 Codex 裁决并冻结第二次 DPO run 训练集"
+        "finalize", help="校验 Codex 裁决并冻结高质量 DPO 训练集"
     )
     finalize.add_argument("--run-dir", type=Path, required=True)
     finalize.add_argument("--train-output", type=Path, default=DEFAULT_TRAIN_OUTPUT)
@@ -942,8 +1125,8 @@ def main() -> None:
                 train_output=args.train_output,
                 audit_output=args.audit_output,
             )
-            print(f"DPO run2 train: {train}")
-            print(f"DPO run2 audit: {audit}")
+            print(f"DPO train: {train}")
+            print(f"DPO audit: {audit}")
     except (DPODataError, OSError, ValueError) as exc:
         parser.error(str(exc))
 

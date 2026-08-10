@@ -54,7 +54,7 @@ from roleplay.stage2_sft import (
 MODEL_ID = "Qwen/Qwen3.5-2B"
 MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_dpo.yaml")
-TRAIN_RELATIVE_PATH = Path("data/runs/morgana-v2/dpo_train_run2.jsonl")
+TRAIN_RELATIVE_PATH = Path("data/runs/morgana-v2/dpo_train_run3.jsonl")
 DEV_RELATIVE_PATH = Path("data/runs/morgana-v2/dev.jsonl")
 SYSTEM_PROMPT_RELATIVE_PATH = Path("data/runs/morgana-v2/system_prompt.txt")
 SFT_ADAPTER_RELATIVE_PATH = Path(
@@ -62,7 +62,8 @@ SFT_ADAPTER_RELATIVE_PATH = Path(
 )
 DEFAULT_OUTPUT_RELATIVE_PATH = Path("output/morgana-v2/stage3-dpo")
 
-TRAIN_SHA256 = "89dd2030fab814454943b312fd65e619f0c807d93076aee7f6878c72fad8bb82"
+TRAIN_SHA256 = "55d6b0efd31dce48fca2009323dd2b7a9f841e74b206187b081a9c6e8e3c47c3"
+TRAIN_PAIR_COUNT = 31
 DEV_SHA256 = "74cf6d05921155cec5c070ca8a611c7a8e6751b00ca0b77a6f4e9085aeeecb22"
 SYSTEM_PROMPT_SHA256 = (
     "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
@@ -168,11 +169,13 @@ def validate_sft_adapter(adapter_dir: Path) -> dict[str, str]:
 
 
 def validate_training_rows(path: Path) -> list[dict[str, Any]]:
-    """Require the frozen 30-pair dataset from the second DPO run."""
+    """Require the frozen high-quality dataset from the current DPO run."""
     validate_frozen_file(path, TRAIN_SHA256)
     rows = read_jsonl(path)
-    if len(rows) != 30:
-        raise Stage3DPOError(f"DPO 偏好对必须为 30，实际 {len(rows)}")
+    if len(rows) != TRAIN_PAIR_COUNT:
+        raise Stage3DPOError(
+            f"DPO 偏好对必须为 {TRAIN_PAIR_COUNT}，实际 {len(rows)}"
+        )
     for index, row in enumerate(rows, 1):
         if set(row) != {"messages", "rejected_response"}:
             raise Stage3DPOError(f"DPO 第 {index} 条字段不正确")
@@ -218,7 +221,7 @@ def validate_training_config(config: dict[str, Any]) -> int:
         raise Stage3DPOError("DPO 冻结配置不正确: " + ", ".join(mismatches))
     planned_steps = (
         math.ceil(
-            math.ceil(30 / config["per_device_train_batch_size"])
+            math.ceil(TRAIN_PAIR_COUNT / config["per_device_train_batch_size"])
             / config["gradient_accumulation_steps"]
         )
         * config["num_train_epochs"]

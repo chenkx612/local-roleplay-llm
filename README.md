@@ -72,6 +72,7 @@ docs/           计划、执行指南、日志与复盘
 
 ## 当前状态
 
-项目正在按 `morgana-v2` 流程推进。阶段二 SFT 已通过；旧版主观 Judge GRPO 和第一次 DPO
-已失败并封存。第二次 DPO run 使用 40 个 Prompt、每条 2 个 SFT 候选和离线 Codex 裁决，已冻结
-30 对偏好数据，下一步从原 SFT adapter 重新训练。后续进展以 `docs/` 中的计划和运行记录为准。
+项目正在按 `morgana-v2` 流程推进。阶段二 SFT 已通过；旧版主观 Judge GRPO 和多次 DPO 诊断
+实验已失败并留档。当前使用 40 个 Prompt、每条 4 个 SFT 候选和离线 Codex 绝对质量裁决，
+已冻结 31 对高质量偏好数据，下一步从原 SFT adapter 重新训练。后续进展以 `docs/` 中的计划和
+运行记录为准。

@@ -104,7 +104,7 @@ tmux new -s roleplay-dpo
 roleplay-stage3-dpo run
 ```
 
-`run` 会校验冻结的 30 对偏好数据、SFT adapter、AutoDL 环境和 DPO 配置，完成 24 个
+`run` 会校验冻结的 31 对偏好数据、SFT adapter、AutoDL 环境和 DPO 配置，完成 8 个
 optimizer steps，并生成 SFT/DPO Dev 匿名对比材料。
 
 ### 3.3 发布训练产物

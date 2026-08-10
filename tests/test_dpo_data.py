@@ -1,4 +1,4 @@
-"""Tests for the second morgana-v2 DPO preference-data workflow."""
+"""Tests for the high-quality morgana-v2 DPO preference-data workflow."""
 
 import hashlib
 import json
@@ -54,15 +54,28 @@ def candidate(prompt_id, index, answer, finish_reason="stop"):
     }
 
 
-def codex_result(review_id, **overrides):
+def codex_result(review_id, candidate_labels=("A", "B"), **overrides):
+    labels = tuple(candidate_labels)
     value = {
         "review_id": review_id,
         "decision": "clear_preference",
-        "source_label": "A",
+        "source_label": labels[0],
+        "rejected_label": labels[1],
+        "candidate_scores": {
+            label: {
+                "generation_stability": 9,
+                "role_consistency": 8 if index == 0 else 5,
+                "dialogue_quality": 8 if index == 0 else 5,
+            }
+            for index, label in enumerate(labels)
+        },
+        "candidate_issues": {label: [] for label in labels},
         "preference_reasons": ["character_consistency"],
         "material_tradeoff": False,
         "hard_rule_only": False,
         "improved_assistant": None,
+        "improved_scores": None,
+        "improved_issues": None,
         "changes": "",
         "notes": "A 更符合角色。",
     }
@@ -84,6 +97,7 @@ class FrozenPromptTests(unittest.TestCase):
     def test_candidate_seeds_are_fixed_and_non_overlapping(self):
         self.assertEqual(candidate_seed("dpo2_0001", 1), 20260810)
         self.assertEqual(candidate_seed("dpo2_0001", 2), 20260811)
+        self.assertEqual(candidate_seed("dpo2_0001", 4), 20260813)
         self.assertEqual(candidate_seed("dpo2_0002", 1), 20260910)
 
     def test_stability_filter_rejects_truncation_repetition_and_brackets(self):
@@ -103,7 +117,7 @@ class FrozenPromptTests(unittest.TestCase):
 
 
 class CandidateGenerationTests(unittest.TestCase):
-    def test_generates_exactly_two_candidates_once(self):
+    def test_generates_exactly_four_candidates_once(self):
         fake_mlx = types.ModuleType("mlx_lm")
         fake_mlx.load = lambda *_args, **_kwargs: (object(), object())
         prompt = {
@@ -112,7 +126,14 @@ class CandidateGenerationTests(unittest.TestCase):
             "target_goals": [],
             "user": "问题",
         }
-        outputs = iter([("回答一", "stop"), ("回答二", "stop")])
+        outputs = iter(
+            [
+                ("回答一", "stop"),
+                ("回答二", "stop"),
+                ("回答三", "stop"),
+                ("回答四", "stop"),
+            ]
+        )
         with patch.dict(sys.modules, {"mlx_lm": fake_mlx}), patch(
             "roleplay.dpo_data._verify_loaded_adapter"
         ), patch(
@@ -126,7 +147,10 @@ class CandidateGenerationTests(unittest.TestCase):
                 system_prompt="system",
             )
         self.assertEqual(len(rows), CANDIDATES_PER_PROMPT)
-        self.assertEqual([row["seed"] for row in rows], [20260810, 20260811])
+        self.assertEqual(
+            [row["seed"] for row in rows],
+            [20260810, 20260811, 20260812, 20260813],
+        )
         self.assertTrue(all(row["generation"] == CONTRACT["generation"] for row in rows))
 
 
@@ -159,12 +183,37 @@ class CodexContractTests(unittest.TestCase):
                 codex_result("r1", hard_rule_only=True), self.labels
             )
 
+    def test_clear_preference_enforces_absolute_chosen_quality(self):
+        result = codex_result("r1")
+        result["candidate_scores"]["A"]["dialogue_quality"] = 6
+        with self.assertRaisesRegex(DPODataError, "绝对质量门槛"):
+            parse_codex_result(result, self.labels)
+
+        result = codex_result("r1")
+        result["candidate_issues"]["A"] = ["template_overuse"]
+        with self.assertRaisesRegex(DPODataError, "绝对质量门槛"):
+            parse_codex_result(result, self.labels)
+
+    def test_clear_preference_requires_stable_rejected_and_two_point_gap(self):
+        result = codex_result("r1")
+        result["candidate_scores"]["B"]["generation_stability"] = 6
+        with self.assertRaisesRegex(DPODataError, "稳定性前提"):
+            parse_codex_result(result, self.labels)
+
+        result = codex_result("r1")
+        result["candidate_scores"]["B"].update(
+            {"role_consistency": 7, "dialogue_quality": 7}
+        )
+        with self.assertRaisesRegex(DPODataError, "偏好分差不足"):
+            parse_codex_result(result, self.labels)
+
     def test_accepts_no_clear_preference_without_winner(self):
         parsed = parse_codex_result(
             codex_result(
                 "r1",
                 decision="no_clear_preference",
                 source_label=None,
+                rejected_label=None,
                 preference_reasons=[],
                 material_tradeoff=True,
                 notes="两条各有明显优劣。",
@@ -180,6 +229,12 @@ class CodexContractTests(unittest.TestCase):
             codex_result(
                 "r1",
                 decision="teacher_edit",
+                improved_scores={
+                    "generation_stability": 9,
+                    "role_consistency": 9,
+                    "dialogue_quality": 9,
+                },
+                improved_issues=[],
                 improved_assistant=improved,
                 changes="补充持续陪伴的语义。",
                 notes="两条原回答都不够自然，最小修改 A。",
@@ -187,11 +242,35 @@ class CodexContractTests(unittest.TestCase):
             self.labels,
         )
         self.assertEqual(parsed["improved_assistant"], improved)
+        with self.assertRaisesRegex(DPODataError, "语义不一致"):
+            parse_codex_result(
+                codex_result(
+                    "r1",
+                    decision="teacher_edit",
+                    rejected_label="A",
+                    improved_scores={
+                        "generation_stability": 9,
+                        "role_consistency": 9,
+                        "dialogue_quality": 9,
+                    },
+                    improved_issues=[],
+                    improved_assistant=improved,
+                    changes="补充持续陪伴的语义。",
+                    notes="来源和 rejected 不能相同。",
+                ),
+                self.labels,
+            )
         with self.assertRaisesRegex(DPODataError, "长度变化超过"):
             parse_codex_result(
                 codex_result(
                     "r1",
                     decision="teacher_edit",
+                    improved_scores={
+                        "generation_stability": 9,
+                        "role_consistency": 9,
+                        "dialogue_quality": 9,
+                    },
+                    improved_issues=[],
                     improved_assistant=(
                         source
                         + "吾辈还会替你安排路线、准备食物、检查行李，"
@@ -213,8 +292,12 @@ class ReviewArtifactTests(unittest.TestCase):
         candidates = [
             candidate("dpo2_0001", 1, "（点头）回答一。"),
             candidate("dpo2_0001", 2, "（摇头）回答二。"),
+            candidate("dpo2_0001", 3, "（认真）回答三。"),
+            candidate("dpo2_0001", 4, "（微笑）回答四。"),
             candidate("dpo2_0002", 1, "（点头）回答三。"),
             candidate("dpo2_0002", 2, "（没闭合", finish_reason="stop"),
+            candidate("dpo2_0002", 3, "重复内容十二" * 8),
+            candidate("dpo2_0002", 4, "（截断）回答", finish_reason="length"),
         ]
         packet, key, results, unresolved = build_codex_review_artifacts(
             prompts=prompts,
@@ -225,7 +308,7 @@ class ReviewArtifactTests(unittest.TestCase):
         self.assertEqual(unresolved, ["dpo2_0002"])
         serialized = json.dumps(packet, ensure_ascii=False)
         self.assertNotIn("sft_candidate", serialized)
-        self.assertEqual(set(key["items"][0]["labels"]), {"A", "B"})
+        self.assertEqual(set(key["items"][0]["labels"]), {"A", "B", "C", "D"})
         self.assertIsNone(results["results"][0]["decision"])
 
 
@@ -239,7 +322,7 @@ class PrepareWorkflowTests(unittest.TestCase):
                 f"（点头）{prompt['id']} 的完整回答 {index}。",
             )
             for prompt in prompts
-            for index in (1, 2)
+            for index in range(1, CANDIDATES_PER_PROMPT + 1)
         ]
 
     def test_prepare_builds_codex_packet_and_is_idempotent(self):
@@ -268,7 +351,7 @@ class PrepareWorkflowTests(unittest.TestCase):
             summary = json.loads((run / "run_summary.json").read_text())
             packet = json.loads((run / "codex_review_packet.json").read_text())
             self.assertEqual(summary["status"], "awaiting_codex_review")
-            self.assertEqual(summary["counts"]["candidates"], 80)
+            self.assertEqual(summary["counts"]["candidates"], 160)
             self.assertEqual(len(packet["items"]), 40)
             self.assertFalse((run / "manual_review_packet.json").exists())
 
@@ -282,10 +365,10 @@ class FinalizeTests(unittest.TestCase):
         prompts = load_prompts()
         candidates = []
         for prompt_index, prompt in enumerate(prompts):
-            for candidate_index in (1, 2):
+            for candidate_index in range(1, CANDIDATES_PER_PROMPT + 1):
                 finish_reason = (
                     "length"
-                    if prompt_index < unstable_prompts and candidate_index == 2
+                    if prompt_index < unstable_prompts and candidate_index > 1
                     else "stop"
                 )
                 candidates.append(
@@ -308,12 +391,15 @@ class FinalizeTests(unittest.TestCase):
         results = []
         for index, row in enumerate(blank["results"]):
             review_id = row["review_id"]
+            labels = key["items"][index]["labels"]
             if index >= included:
                 results.append(
                     codex_result(
                         review_id,
+                        candidate_labels=labels,
                         decision="no_clear_preference",
                         source_label=None,
+                        rejected_label=None,
                         preference_reasons=[],
                         material_tradeoff=True,
                         notes="两条存在实质权衡。",
@@ -325,19 +411,28 @@ class FinalizeTests(unittest.TestCase):
                 results.append(
                     codex_result(
                         review_id,
+                        candidate_labels=labels,
                         decision="teacher_edit",
+                        improved_scores={
+                            "generation_stability": 9,
+                            "role_consistency": 9,
+                            "dialogue_quality": 9,
+                        },
+                        improved_issues=[],
                         improved_assistant=source.replace("完整", "较完整"),
                         changes="修正表达自然度。",
                         notes="两条都不够好，最小修改 A。",
                     )
                 )
             else:
-                results.append(codex_result(review_id))
+                results.append(
+                    codex_result(review_id, candidate_labels=labels)
+                )
         write_json_atomic(run / "codex_review_packet.json", packet)
         write_json_atomic(run / "codex_review_key.json", key)
         write_json_atomic(
             run / "codex_review_results.json",
-            {"schema_version": 2, "reviewer": "codex", "results": results},
+            {"schema_version": 3, "reviewer": "codex", "results": results},
         )
         summary = {
             **_summary_contract(),
@@ -412,11 +507,11 @@ class FinalizeTests(unittest.TestCase):
             )
             self.assertIsNone(audit["items"][0]["review_id"])
 
-    def test_rejects_teacher_pairs_above_one_third(self):
+    def test_rejects_teacher_pairs_above_one_fifth(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            run = self.make_run(root, included=30, teacher_count=11)
-            with self.assertRaisesRegex(DPODataError, "超过三分之一"):
+            run = self.make_run(root, included=30, teacher_count=7)
+            with self.assertRaisesRegex(DPODataError, "超过五分之一"):
                 finalize_run(
                     run_dir=run,
                     train_output=root / "train.jsonl",
@@ -447,7 +542,7 @@ class FinalizeTests(unittest.TestCase):
             key_path = run / "codex_review_key.json"
             packet = json.loads(packet_path.read_text())
             key = json.loads(key_path.read_text())
-            packet["items"][0]["answer_a"] = "（点头）被替换的回答。"
+            packet["items"][0]["answers"]["A"] = "（点头）被替换的回答。"
             key["items"][0]["labels"]["A"]["assistant"] = (
                 "（点头）被替换的回答。"
             )
