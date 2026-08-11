@@ -21,6 +21,7 @@ from roleplay.stage4_grpo import (
     evaluate_rule_dev,
     evaluate_stage4_manual_review,
     extract_release_bundle,
+    main as stage4_main,
     prepare_training_rows,
     publish_run,
     review_run,
@@ -169,6 +170,14 @@ class FrozenInputTests(unittest.TestCase):
         validate_training_config(config)
         self.assertEqual(sha256_file(path), CONFIG_SHA256)
 
+        self.assertEqual(config["num_generations"], 8)
+        self.assertEqual(config["gradient_accumulation_steps"], 8)
+        self.assertEqual(config["learning_rate"], 1.0e-6)
+        self.assertEqual(config["temperature"], 0.8)
+        self.assertEqual(config["top_p"], 0.9)
+        self.assertEqual(config["num_train_epochs"], 1)
+        self.assertEqual(config["beta"], 0.1)
+
     def test_rejects_weaker_kl_constraint(self):
         config = _load_yaml(Path("configs/morgana_v2_stage4_grpo.yaml"))
         config["beta"] = 0.04
@@ -202,13 +211,25 @@ class FrozenInputTests(unittest.TestCase):
         self.assertNotIn("causal-conv1d", requirements)
 
 
+class CliTests(unittest.TestCase):
+    def test_run_dispatches_single_workflow(self):
+        with patch(
+            "roleplay.stage4_grpo.run_stage4",
+            return_value=Path("/tmp/run"),
+        ) as run:
+            result = stage4_main(["run"])
+
+        self.assertEqual(result, 0)
+        run.assert_called_once_with(None)
+
+
 class RewardLogAndDevGateTests(unittest.TestCase):
     def test_requires_component_complete_rewards(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "reward_samples.jsonl"
             with path.open("w", encoding="utf-8") as output:
                 for prompt in prompt_rows():
-                    for _ in range(4):
+                    for _ in range(8):
                         output.write(
                             json.dumps(
                                 {
@@ -225,7 +246,7 @@ class RewardLogAndDevGateTests(unittest.TestCase):
                 path, {row["id"] for row in prompt_rows()}
             )
 
-            self.assertEqual(result["rows"], 80)
+            self.assertEqual(result["rows"], 160)
             self.assertEqual(result["mean"], 2.0)
 
     def test_rejects_incomplete_reward_components(self):
@@ -362,7 +383,7 @@ class RunWorkflowTests(unittest.TestCase):
                     (trained / name).write_text(name)
                 with (output / "reward_samples.jsonl").open("w") as rewards:
                     for prompt in prompt_rows():
-                        for _ in range(4):
+                        for _ in range(8):
                             rewards.write(
                                 json.dumps(
                                     {

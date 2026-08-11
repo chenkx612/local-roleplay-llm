@@ -208,18 +208,6 @@ git push
 
 ## 5. Stage 4 规则型 GRPO
 
-### 5.0 候选探索实验
-
-在第二次训练前，可以只加载冻结 SFT adapter、运行按成本递增的采样阶梯，不更新任何权重：
-
-```bash
-roleplay-stage4-explore run
-```
-
-程序在首个达到冻结候选支持率门槛的配置停止，结果写入
-`output/morgana-v2/stage4-exploration/<run-id>/`。完整实验合同见
-[`STAGE4_EXPLORATION_PLAN.md`](STAGE4_EXPLORATION_PLAN.md)。
-
 ### 5.1 准备与训练
 
 将已通过验收的 Stage 2 adapter 放到固定路径
@@ -238,8 +226,8 @@ roleplay-stage4-grpo run
 ```
 
 `run` 校验冻结 SFT adapter、20条规则 Prompt、配置和依赖，完成训练后生成本地奖励日志、逐条
-SFT/GRPO Dev 规则分和匿名复核材料。失败现场保存在
-`output/morgana-v2/stage4-grpo/.work/<run-id>/`。
+SFT/GRPO Dev 规则分和匿名复核材料。每次 `run` 都从冻结 SFT adapter 开始，奖励公式不变，
+结果保存在 `output/morgana-v2/stage4-grpo/<run-id>/`，失败现场保存在同目录的 `.work/` 下。
 
 ### 5.2 发布、下载和复核
 

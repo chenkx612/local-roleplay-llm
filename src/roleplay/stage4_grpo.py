@@ -65,7 +65,7 @@ from roleplay.stage3_grpo import (
 
 
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_stage4_grpo.yaml")
-CONFIG_SHA256 = "584b47d88eadd6e34df6af749e9d52fdfb8349c82abeecb7d3cac15d84906f06"
+CONFIG_SHA256 = "50762d76e7a3526b8f110a4ec36665fbbd9c3de3afdfe09149a08c804fbd9437"
 PROMPTS_RELATIVE_PATH = Path("data/runs/morgana-v2/rule_grpo_train.jsonl")
 DEV_RELATIVE_PATH = Path("data/runs/morgana-v2/dev.jsonl")
 SYSTEM_PROMPT_RELATIVE_PATH = Path("data/runs/morgana-v2/system_prompt.txt")
@@ -98,13 +98,15 @@ EXPECTED_CONFIG = {
     "bnb_4bit_compute_dtype": "float32",
     "lora_dtype": "float32",
     "max_completion_length": 256,
-    "num_generations": 4,
+    "num_generations": 8,
     "per_device_train_batch_size": 1,
-    "gradient_accumulation_steps": 4,
+    "gradient_accumulation_steps": 8,
     "num_train_epochs": 1,
-    "learning_rate": 5.0e-7,
+    "learning_rate": 1.0e-6,
     "beta": 0.1,
     **STAGE3_SAMPLING_CONFIG,
+    "temperature": 0.8,
+    "top_p": 0.9,
     "enable_thinking": False,
     "packing": False,
     "padding_free": False,
@@ -233,7 +235,8 @@ def _row_user(row: dict[str, Any]) -> str | None:
 
 
 def validate_prompt_isolation(
-    repo_dir: Path, prompts: Sequence[dict[str, Any]]
+    repo_dir: Path,
+    prompts: Sequence[dict[str, Any]],
 ) -> None:
     """Reject exact normalized overlap with every other v2 JSONL split."""
     current = {_normalize_prompt(row["user"]) for row in prompts}
@@ -327,9 +330,10 @@ def validate_training_config(config: dict[str, Any]) -> None:
 
 
 def validate_reward_samples(
-    path: Path, expected_record_ids: set[str]
+    path: Path,
+    expected_record_ids: set[str],
 ) -> dict[str, Any]:
-    """Require four successful, component-complete rewards per prompt."""
+    """Require eight successful, component-complete rewards per prompt."""
     if not path.is_file():
         raise Stage4GRPOError(f"缺少奖励日志: {path}")
     rows = read_jsonl(path)
@@ -363,7 +367,7 @@ def validate_reward_samples(
     invalid_counts = {
         record_id: counts[record_id]
         for record_id in sorted(expected_record_ids)
-        if counts[record_id] != 4
+        if counts[record_id] != 8
     }
     if unexpected or invalid_counts:
         raise Stage4GRPOError(
@@ -652,7 +656,8 @@ def run_stage4(output_root: Path | None = None) -> Path:
 
         reward_path = train_output / "reward_samples.jsonl"
         reward = validate_reward_samples(
-            reward_path, {row["id"] for row in prompts}
+            reward_path,
+            {row["id"] for row in prompts},
         )
         final_adapter = find_final_adapter(train_output)
         adapter_update = inspect_adapter_change(adapter_dir, final_adapter)

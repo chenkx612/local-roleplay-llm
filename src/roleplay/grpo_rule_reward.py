@@ -19,7 +19,7 @@ from roleplay.sft_eval import (
 
 
 PROMPTS_RELATIVE_PATH = Path("data/runs/morgana-v2/rule_grpo_train.jsonl")
-PROMPTS_SHA256 = "673601814362fbd171fadd50c1a3364fe92a586de7c52e2cc2818afe409c7bed"
+PROMPTS_SHA256 = "5927ce66062de01a5b343d2a6fb73fc31f5983016d87905f796fc2e87feaef37"
 ACTION_POLICIES = frozenset({"encouraged", "optional", "forbidden"})
 ACTION_POLICY_COUNTS = {"encouraged": 10, "optional": 8, "forbidden": 2}
 
