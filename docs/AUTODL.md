@@ -1,6 +1,7 @@
 # AutoDL：SFT、DPO 与 GRPO
 
-在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的阶段二 SFT、阶段三 DPO 和历史 GRPO。
+在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的阶段二 SFT、阶段三 DPO、历史主观 GRPO 和
+Stage 4 规则型 GRPO。
 
 ## 1. 准备
 
@@ -204,3 +205,55 @@ git add -f \
 git commit -m "chore: record morgana-v2 GRPO review"
 git push
 ```
+
+## 5. Stage 4 规则型 GRPO
+
+### 5.1 准备与训练
+
+将已通过验收的 Stage 2 adapter 放到固定路径
+`output/morgana-v2/stage2-sft/final/adapter/`。规则奖励完全本地运行，不要设置
+`DEEPSEEK_API_KEY`：
+
+```bash
+cd /root/autodl-tmp/roleplay
+python -m pip install \
+  -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+  -r requirements/stage4_grpo_autodl.txt
+python -m pip install -e .
+
+tmux new -s roleplay-stage4-grpo
+roleplay-stage4-grpo run
+```
+
+`run` 校验冻结 SFT adapter、20条规则 Prompt、配置和依赖，完成训练后生成本地奖励日志、逐条
+SFT/GRPO Dev 规则分和匿名复核材料。失败现场保存在
+`output/morgana-v2/stage4-grpo/.work/<run-id>/`。
+
+### 5.2 发布、下载和复核
+
+```bash
+gh auth login  # 仅首次需要
+roleplay-stage4-grpo publish \
+  --run-dir output/morgana-v2/stage4-grpo/<run-id>
+```
+
+在本地下载输出的 Release tag：
+
+```bash
+cd /Users/chenkx/roleplay
+git pull --ff-only
+python -m pip install -e .
+roleplay-stage4-grpo download \
+  --tag morgana-v2-stage4-grpo-<run-id>
+```
+
+按照 `manual_review_packet.json` 和其中的 `severe_issue_codes` 填写
+`manual_review_results.json`，然后执行：
+
+```bash
+roleplay-stage4-grpo review \
+  --run-dir output/morgana-v2/stage4-grpo/<run-id>
+```
+
+`review` 会完整记录匿名胜负和三维评分，但只以 GRPO 相对 SFT 新增的严重问题阻断
+`ready_for_eval`。自动规则门槛失败时，即使人工复核通过也不会进入 Eval。

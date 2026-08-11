@@ -1,5 +1,16 @@
 # morgana-v2 运行日志
 
+## 2026-08-11：Stage 4 规则型 GRPO 已冻结并可执行
+
+- 新增独立 `roleplay-stage4-grpo` 的 `run/publish/download/review` 四命令，保留旧 Stage 3 主观
+  Judge GRPO 以复现负向证据。新训练从冻结 SFT adapter 开始，不读取任何失败 DPO adapter。
+- 冻结20条独立规则压力 Prompt，动作策略分布为10条 encouraged、8条 optional、2条
+  forbidden；已验证与现有 v2 JSONL 输入不存在规范化精确重复。
+- 奖励改为完全本地的确定性规则：不可读硬门控，长度、自称、动作密度和格式分别记录子分；不再
+  要求 `DEEPSEEK_API_KEY`，也不使用在线主观 Judge。
+- 首次配置固定为4候选、1 epoch、`learning_rate=5e-7`、`beta=0.1`。Dev 自动门槛为规则均分
+  至少提升0.3且至少胜6/10；人工只阻断新增严重问题。正式 GPU run 尚未执行。
+
 ## 2026-08-11：v2 跳过失败 DPO adapter，直接进入规则型 GRPO
 
 - 当前目标调整为优先完成一版可复现的 v2 闭环；最低模型目标是规则表现明确优于 Base 且没有
