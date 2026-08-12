@@ -8,7 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
-from roleplay.grpo_rule_reward import score_completion
+from roleplay.grpo_rule_reward import RewardConstraints, score_completion
 from roleplay.stage2_sft import sha256_file, write_json_atomic
 from roleplay.stage4_grpo import (
     ADAPTER_FILES,
@@ -34,16 +34,24 @@ from roleplay.stage4_grpo import (
 
 
 def prompt_rows():
-    policies = ["encouraged"] * 10 + ["optional"] * 8 + ["forbidden"] * 2
     return [
         {
             "id": f"rule_grpo_{index:04d}",
             "scenario": "daily",
             "user": f"规则问题 {index}",
             "target_rules": ["brevity", "signature", "action"],
-            "reward_policy": {"action": policy},
+            "reward_constraints": {
+                "min_actions": 1,
+                "max_actions": 1,
+                "min_sentences": 1,
+                "max_sentences": 2,
+                "min_chars": 20,
+                "max_chars": 70,
+                "min_signatures": 1,
+                "max_signatures": 1,
+            },
         }
-        for index, policy in enumerate(policies, 1)
+        for index in range(1, 21)
     ]
 
 
@@ -67,7 +75,7 @@ def dev_rows(answer: str, *, finish_reason: str = "stop"):
 def reward_components(total_reward: float = 2.0):
     components = score_completion(
         "（认真点头）吾辈已经听清楚了，接下来会把这件事情处理妥当。",
-        "encouraged",
+        RewardConstraints(1, 1, 1, 2, 20, 70, 1, 1),
     ).as_log_dict()
     components["total_reward"] = total_reward
     return components
@@ -138,18 +146,18 @@ def make_successful_run(run_dir: Path) -> None:
 
 
 class FrozenInputTests(unittest.TestCase):
-    def test_prepares_twenty_policy_validated_records(self):
+    def test_prepares_twenty_constraint_validated_records(self):
         records = prepare_training_rows(prompt_rows(), "system")
 
         self.assertEqual(len(records), 20)
         self.assertEqual(records[0]["id"], "rule_grpo_0001")
         self.assertEqual(records[0]["messages"][-1]["content"], "规则问题 1")
 
-    def test_rejects_bad_policy_distribution(self):
+    def test_rejects_invalid_constraint_range(self):
         rows = prompt_rows()
-        rows[0]["reward_policy"]["action"] = "optional"
+        rows[0]["reward_constraints"]["min_actions"] = 2
 
-        with self.assertRaisesRegex(Stage4GRPOError, "分布"):
+        with self.assertRaisesRegex(Stage4GRPOError, "最小值"):
             prepare_training_rows(rows, "system")
 
     def test_repository_prompts_are_isolated(self):
@@ -233,6 +241,7 @@ class RewardLogAndDevGateTests(unittest.TestCase):
                         output.write(
                             json.dumps(
                                 {
+                                    "schema_version": 2,
                                     "status": "ok",
                                     "record_id": prompt["id"],
                                     "components": reward_components(),
@@ -255,6 +264,7 @@ class RewardLogAndDevGateTests(unittest.TestCase):
             path.write_text(
                 json.dumps(
                     {
+                        "schema_version": 2,
                         "status": "ok",
                         "record_id": "rule_grpo_0001",
                         "components": {"total_reward": 2.0},
@@ -387,6 +397,7 @@ class RunWorkflowTests(unittest.TestCase):
                             rewards.write(
                                 json.dumps(
                                     {
+                                        "schema_version": 2,
                                         "status": "ok",
                                         "record_id": prompt["id"],
                                         "components": reward_components(),

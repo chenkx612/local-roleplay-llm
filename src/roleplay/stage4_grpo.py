@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shlex
@@ -21,10 +22,11 @@ from typing import Any, Sequence
 from uuid import uuid4
 
 from roleplay.grpo_rule_reward import (
-    ACTION_POLICY_COUNTS,
-    ACTION_POLICIES,
+    CONSTRAINT_FIELDS,
     PROMPTS_SHA256,
+    RewardConstraints,
     RuleRewardError,
+    parse_constraints,
     reward_spec,
     score_completion,
 )
@@ -144,28 +146,35 @@ EXPECTED_ARCHIVE_FILES = frozenset(
     }
 )
 
-_DEV_ACTION_POLICY = {
-    "adversarial": "encouraged",
-    "daily": "encouraged",
-    "style": "encouraged",
-    "background": "optional",
-    "emotion": "optional",
-}
+DEV_REWARD_CONSTRAINTS = RewardConstraints(
+    min_actions=0,
+    max_actions=2,
+    min_sentences=1,
+    max_sentences=4,
+    min_chars=30,
+    max_chars=90,
+    min_signatures=0,
+    max_signatures=1,
+)
 
 REWARD_COMPONENT_FIELDS = frozenset(
     {
-        "action_policy",
+        "constraints",
         "normalized_length",
-        "length_score",
+        "sentence_count",
         "signature_count",
-        "signature_score",
         "wrong_self_references",
-        "wrong_self_penalty",
+        "wrong_self_count",
         "action",
-        "action_score",
+        "instruction_violation",
+        "instruction_score",
+        "persona_violation",
+        "persona_score",
+        "style_violation",
+        "style_score",
         "format_reasons",
-        "format_penalty",
         "hard_invalid_reasons",
+        "recoverability",
         "raw_reward",
         "total_reward",
     }
@@ -174,15 +183,13 @@ ACTION_ANALYSIS_FIELDS = frozenset(
     {
         "segments",
         "count",
+        "segment_lengths",
         "total_action_length",
         "action_ratio",
         "minimum_dialogue_gap",
-        "unbalanced",
-        "nested",
-        "overlong",
-        "over_ratio",
-        "dense_pair",
-        "invalid_content",
+        "unbalanced_count",
+        "nested_count",
+        "invalid_content_count",
     }
 )
 
@@ -268,16 +275,14 @@ def prepare_training_rows(
         "scenario",
         "user",
         "target_rules",
-        "reward_policy",
+        "reward_constraints",
     }
     ids = set()
-    counts = {name: 0 for name in ACTION_POLICIES}
     records = []
     for index, row in enumerate(prompts):
         if set(row) != expected_fields:
             raise Stage4GRPOError(f"规则 Prompt {index} 字段不正确")
         record_id = row["id"]
-        policy = row["reward_policy"]
         if (
             not isinstance(record_id, str)
             or not re.fullmatch(r"rule_grpo_\d{4}", record_id)
@@ -288,13 +293,15 @@ def prepare_training_rows(
             or not row["user"].strip()
             or not isinstance(row["target_rules"], list)
             or not row["target_rules"]
-            or not isinstance(policy, dict)
-            or set(policy) != {"action"}
-            or policy["action"] not in ACTION_POLICIES
         ):
             raise Stage4GRPOError(f"规则 Prompt {index} 内容不正确")
+        try:
+            parse_constraints(row["reward_constraints"])
+        except RuleRewardError as exc:
+            raise Stage4GRPOError(
+                f"规则 Prompt {index} 奖励约束不正确: {exc}"
+            ) from exc
         ids.add(record_id)
-        counts[policy["action"]] += 1
         records.append(
             {
                 "id": record_id,
@@ -304,10 +311,6 @@ def prepare_training_rows(
                     {"role": "user", "content": row["user"]},
                 ],
             }
-        )
-    if counts != ACTION_POLICY_COUNTS:
-        raise Stage4GRPOError(
-            f"动作策略分布不正确: {counts} != {ACTION_POLICY_COUNTS}"
         )
     return records
 
@@ -345,23 +348,37 @@ def validate_reward_samples(
     for row in rows:
         reward = row.get("total_reward")
         components = row.get("components")
+        constraints = (
+            components.get("constraints")
+            if isinstance(components, dict)
+            else None
+        )
         action = (
             components.get("action") if isinstance(components, dict) else None
         )
         if (
             isinstance(reward, bool)
             or not isinstance(reward, (int, float))
+            or not math.isfinite(float(reward))
+            or row.get("schema_version") != 2
             or not isinstance(components, dict)
             or set(components) != REWARD_COMPONENT_FIELDS
+            or not isinstance(constraints, dict)
+            or set(constraints) != CONSTRAINT_FIELDS
             or not isinstance(action, dict)
             or set(action) != ACTION_ANALYSIS_FIELDS
             or not isinstance(components["wrong_self_references"], list)
             or not isinstance(components["format_reasons"], list)
             or not isinstance(components["hard_invalid_reasons"], list)
             or not isinstance(action["segments"], list)
+            or not isinstance(action["segment_lengths"], list)
             or components.get("total_reward") != reward
         ):
             raise Stage4GRPOError("奖励日志缺少有效子分或 total_reward")
+        try:
+            parse_constraints(constraints)
+        except RuleRewardError as exc:
+            raise Stage4GRPOError("奖励日志包含无效约束") from exc
     counts = Counter(row.get("record_id") for row in rows)
     unexpected = sorted(set(counts) - expected_record_ids, key=str)
     invalid_counts = {
@@ -382,15 +399,6 @@ def validate_reward_samples(
         "maximum": max(rewards),
         "record_counts": dict(sorted(counts.items())),
     }
-
-
-def _dev_policy(row: dict[str, Any]) -> str:
-    try:
-        return _DEV_ACTION_POLICY[row["scenario"]]
-    except KeyError as exc:
-        raise Stage4GRPOError(
-            f"Dev 场景缺少动作策略: {row.get('scenario')!r}"
-        ) from exc
 
 
 def evaluate_rule_dev(
@@ -417,12 +425,15 @@ def evaluate_rule_dev(
         for record_id in expected_ids:
             sft = sft_index[(seed, record_id)]
             grpo = grpo_index[(seed, record_id)]
-            policy = _dev_policy(sft)
             sft_score = score_completion(
-                sft["assistant"], policy, finish_reason=sft.get("finish_reason")
+                sft["assistant"],
+                DEV_REWARD_CONSTRAINTS,
+                finish_reason=sft.get("finish_reason"),
             )
             grpo_score = score_completion(
-                grpo["assistant"], policy, finish_reason=grpo.get("finish_reason")
+                grpo["assistant"],
+                DEV_REWARD_CONSTRAINTS,
+                finish_reason=grpo.get("finish_reason"),
             )
             delta = grpo_score.total_reward - sft_score.total_reward
             wins += int(delta > 0)
@@ -434,10 +445,10 @@ def evaluate_rule_dev(
                 grpo_hard_invalid.append(f"{seed}:{record_id}")
             score_rows.append(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "seed": seed,
                     "id": record_id,
-                    "action_policy": policy,
+                    "constraints": DEV_REWARD_CONSTRAINTS.as_dict(),
                     "sft": sft_score.as_log_dict(),
                     "grpo": grpo_score.as_log_dict(),
                     "reward_delta": delta,

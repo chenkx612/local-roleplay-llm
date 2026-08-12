@@ -7,15 +7,16 @@
 
 ## 冻结输入与配置
 
-- 20条 `rule_grpo_NNNN` Prompt 与其他 v2 split 全局去重，动作策略为10条 `encouraged`、8条
-  `optional` 和2条 `forbidden`。
+- 20条 `rule_grpo_NNNN` Prompt 与其他 v2 split 全局去重；每条只声明动作数、句数、长度和
+  标志性自称的允许范围，统一使用连续 Reward v2。
 - 8候选、1 epoch、20个 optimizer steps、`learning_rate=1e-6`、`beta=0.1`、FP32 QLoRA。
 - 奖励规约见 [`STAGE4_REWARD_SPEC.md`](STAGE4_REWARD_SPEC.md)，训练后不得依据 Dev 改奖励。
 
 ## 当前 run 配置
 
-首次 run `20260811-2249` 保留为负向证据。后续每轮仍从同一个冻结 SFT adapter 开始，不继承
-此前 GRPO adapter，也不修改奖励公式。当前冻结输入使用课程化20条 Prompt，并合并以下改动：
+旧离散奖励 run `20260811-2249` 和 `20260812-0052` 保留为负向证据。后续每轮仍从同一个冻结
+SFT adapter 开始，不继承此前 GRPO adapter。当前冻结输入使用课程化20条 Prompt 和连续
+Reward v2，并保持以下训练配置：
 
 - `num_generations=8`，对应 `gradient_accumulation_steps=8`；
 - `temperature=0.8`、`top_p=0.9`；
@@ -23,7 +24,8 @@
 - 保持1 epoch、20个 optimizer steps 和 `beta=0.1`。
 
 运行命令为 `roleplay-stage4-grpo run`，每次结果由独立 `<run-id>` 隔离在
-`output/morgana-v2/stage4-grpo/`。课程 Prompt 保持20个固定 ID 和动作策略，奖励函数不变。
+`output/morgana-v2/stage4-grpo/`。课程 Prompt 保持20个固定 ID；训练开始后不得依据 Dev 修改
+奖励函数。
 
 ## 四命令流程
 
