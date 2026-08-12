@@ -137,7 +137,7 @@ EXPECTED_CONFIG = {
     "num_train_epochs": 1,
     "per_device_train_batch_size": 1,
     "gradient_accumulation_steps": 2,
-    "learning_rate": 5.0e-7,
+    "learning_rate": 1.0e-6,
     "gradient_checkpointing": True,
     "enable_thinking": False,
     "add_non_thinking_prefix": True,

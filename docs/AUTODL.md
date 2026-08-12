@@ -291,8 +291,7 @@ roleplay-post-grpo-dpo run
 
 ```bash
 gh auth login  # 仅首次需要
-roleplay-post-grpo-dpo publish \
-  --run-dir output/morgana-v2/post-grpo-dpo/train/<run-id>
+roleplay-post-grpo-dpo publish --run-dir output/morgana-v2/post-grpo-dpo/train/<run-id>
 ```
 
 ### 6.2 本地下载与复核
