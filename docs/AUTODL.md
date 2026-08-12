@@ -314,3 +314,51 @@ roleplay-post-grpo-dpo review \
 只有自动稳定性与 Reward v2 均未回退，且匿名人工复核通过，状态才会变为
 `ready_for_final_eval`。失败训练保留在 `.work/<run-id>/`，已存在的 run、发布包和下载目录均不会
 被覆盖。
+
+## 7. Post-GRPO DPO 扩充采样
+
+本轮只使用冻结的 `20260812-2144` GRPO adapter，对60条全新 Prompt 每题批量采样8次，
+共480条。9条 holdout 和之前两次 DPO adapter 均不参与。AutoDL 安装依赖后运行：
+
+```bash
+cd /root/autodl-tmp/roleplay
+git pull --ff-only
+python -m pip install \
+  -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+  -r requirements/stage3_dpo_autodl.txt
+python -m pip install -e .
+
+tmux new -s roleplay-dpo-sampling
+roleplay-post-grpo-dpo-sampling run
+```
+
+`run` 会逐阶段显示环境校验、模型加载、`Prompt x/60`、候选数、有效数、耗时和 ETA；
+相同内容同步保存在 `sampling.log`。完成后在 AutoDL 发布：
+
+```bash
+roleplay-post-grpo-dpo-sampling publish \
+  --run-dir output/morgana-v2/post-grpo-dpo/sampling/<run-id>
+```
+
+回到本地下载：
+
+```bash
+cd /Users/chenkx/roleplay
+git pull --ff-only
+python -m pip install -e .
+roleplay-post-grpo-dpo-sampling download \
+  --tag morgana-v2-post-grpo-dpo-sampling-<run-id>
+```
+
+然后让 Codex 依据 `review_packet.json` 填写同目录的 `review_results.json`，并使用新的输出名
+构造 pair：
+
+```bash
+roleplay-post-grpo-dpo-data finalize \
+  --run-dir output/morgana-v2/post-grpo-dpo/sampling/<run-id> \
+  --train-output data/runs/morgana-v2/post_grpo_dpo_train_expansion.jsonl \
+  --audit-output data/runs/morgana-v2/post_grpo_dpo_train_expansion_audit.json
+```
+
+新批次达到40～60对、每个目标至少12对且 Teacher chosen 不超过25%时，才标记为
+`ready_for_dpo`；不足时只保留审计结果，不补采样。

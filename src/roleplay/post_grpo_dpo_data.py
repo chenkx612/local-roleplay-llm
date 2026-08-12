@@ -563,18 +563,27 @@ def build_review_artifacts(
     prompts: Sequence[dict[str, Any]],
     candidates: Sequence[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], list[str]]:
-    """Build one anonymous six-way semantic review packet."""
+    """Build one anonymous semantic review packet from distinct candidates."""
     rng = random.Random(REVIEW_ORDER_SEED)
     packet_items: list[dict[str, Any]] = []
     key_items: list[dict[str, Any]] = []
     unresolved: list[str] = []
     for prompt in prompts:
-        eligible = [
+        reviewable = [
             row
             for row in candidates
             if row["prompt_id"] == prompt["id"]
             and row["eligible_for_review"]
+            and row.get("duplicate_of_candidate_id") is None
         ]
+        eligible: list[dict[str, Any]] = []
+        seen_answers: set[str] = set()
+        for row in reviewable:
+            canonical = " ".join(row["assistant"].strip().split())
+            if canonical in seen_answers:
+                continue
+            seen_answers.add(canonical)
+            eligible.append(row)
         if len(eligible) < 2:
             unresolved.append(prompt["id"])
             continue
@@ -1080,6 +1089,7 @@ def _load_finalization_inputs(
 ) -> tuple[
     dict[str, Any],
     list[dict[str, Any]],
+    list[dict[str, Any]],
     dict[str, dict[str, Any]],
     dict[str, dict[str, Any]],
     dict[str, dict[str, Any]],
@@ -1097,15 +1107,37 @@ def _load_finalization_inputs(
         metadata = summary.get("artifacts", {}).get(name, {})
         if not path.is_file() or metadata.get("sha256") != sha256_file(path):
             raise PostGRPODPODataError(f"冻结 run 产物发生变化: {name}")
-    prompts = _validate_split(
-        TRAIN_PATH,
-        id_prefix="post_dpo_",
-        expected_count=TRAIN_COUNT,
-        expected_per_issue=TRAIN_PER_ISSUE,
-    )
+    stage = summary.get("stage")
+    if stage == "post_grpo_dpo_sampling":
+        from roleplay.post_grpo_dpo_sampling import (
+            PostGRPODPOSamplingError,
+            validate_expansion_prompt_data,
+            validate_sampling_candidate_rows,
+        )
+
+        try:
+            prompts = validate_expansion_prompt_data(ROOT)
+        except PostGRPODPOSamplingError as exc:
+            raise PostGRPODPODataError(str(exc)) from exc
+        candidate_validator = validate_sampling_candidate_rows
+    elif stage in {None, "post_grpo_dpo_data"}:
+        prompts = _validate_split(
+            TRAIN_PATH,
+            id_prefix="post_dpo_",
+            expected_count=TRAIN_COUNT,
+            expected_per_issue=TRAIN_PER_ISSUE,
+        )
+        candidate_validator = validate_candidate_rows
+    else:
+        raise PostGRPODPODataError(f"不支持的 run stage: {stage}")
     system_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
     candidates = load_jsonl(run_dir / "candidates.jsonl")
-    validate_candidate_rows(candidates, prompts, system_prompt)
+    try:
+        candidate_validator(candidates, prompts, system_prompt)
+    except RuntimeError as exc:
+        if isinstance(exc, PostGRPODPODataError):
+            raise
+        raise PostGRPODPODataError(str(exc)) from exc
     packet = json.loads((run_dir / "review_packet.json").read_text(encoding="utf-8"))
     key = json.loads((run_dir / "review_key.json").read_text(encoding="utf-8"))
     submitted = json.loads(
@@ -1150,7 +1182,7 @@ def _load_finalization_inputs(
         parsed[review_id] = parse_review_result(
             result_by_id[review_id], packet_item, key_item
         )
-    return summary, candidates, packet_by_id, key_by_id, parsed
+    return summary, prompts, candidates, packet_by_id, key_by_id, parsed
 
 
 def finalize_run(
@@ -1161,9 +1193,27 @@ def finalize_run(
 ) -> tuple[str, Path | None, Path]:
     """Validate Codex adjudication and export at most one pair per Prompt."""
     run_dir = run_dir.resolve()
-    summary, candidates, packet_by_id, key_by_id, results = (
+    summary, prompts, candidates, packet_by_id, key_by_id, results = (
         _load_finalization_inputs(run_dir)
     )
+    expansion_run = summary.get("stage") == "post_grpo_dpo_sampling"
+    if expansion_run and (
+        train_output.resolve() == DEFAULT_TRAIN_OUTPUT.resolve()
+        or audit_output.resolve() == DEFAULT_AUDIT_OUTPUT.resolve()
+    ):
+        raise PostGRPODPODataError(
+            "扩展采样必须显式指定新的 --train-output 和 --audit-output"
+        )
+    if expansion_run:
+        from roleplay.post_grpo_dpo_sampling import (
+            MAX_FINAL_PAIRS as run_max_pairs,
+            MIN_FINAL_PAIRS as run_min_pairs,
+            MIN_PAIRS_PER_ISSUE as run_min_per_issue,
+        )
+    else:
+        run_min_pairs = MIN_FINAL_PAIRS
+        run_max_pairs = MAX_FINAL_PAIRS
+        run_min_per_issue = MIN_PAIRS_PER_ISSUE
     system_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
     train_rows: list[dict[str, Any]] = []
     audit_items: list[dict[str, Any]] = []
@@ -1232,7 +1282,7 @@ def finalize_run(
     reviewed_prompt_ids = {
         item["prompt_id"] for item in packet_by_id.values()
     }
-    for prompt in load_jsonl(TRAIN_PATH):
+    for prompt in prompts:
         if prompt["id"] in reviewed_prompt_ids:
             continue
         prompt_candidates = [
@@ -1248,7 +1298,7 @@ def finalize_run(
                 "eligible_candidates": sum(
                     row["eligible_for_review"] for row in prompt_candidates
                 ),
-                "notes": "少于两个候选通过 Reward v2 硬过滤。",
+                "notes": "少于两个不同候选通过硬过滤并进入裁决。",
             }
         )
     audit_items.sort(key=lambda row: row["prompt_id"])
@@ -1260,15 +1310,15 @@ def finalize_run(
         row["target_issue"] for row in audit_items if row["included"]
     )
     ready = (
-        MIN_FINAL_PAIRS <= len(train_rows) <= MAX_FINAL_PAIRS
+        run_min_pairs <= len(train_rows) <= run_max_pairs
         and all(
-            issue_counts[issue] >= MIN_PAIRS_PER_ISSUE
+            issue_counts[issue] >= run_min_per_issue
             for issue in TARGET_ISSUES
         )
     )
     status = "ready_for_dpo" if ready else "insufficient_pairs"
     audit: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2 if expansion_run else 1,
         "source_run": str(run_dir),
         "status": status,
         "pairs": len(train_rows),
@@ -1276,6 +1326,12 @@ def finalize_run(
             issue: issue_counts[issue] for issue in TARGET_ISSUES
         },
         "teacher_pairs": teacher_pairs,
+        "readiness_contract": {
+            "minimum_pairs": run_min_pairs,
+            "maximum_pairs": run_max_pairs,
+            "minimum_pairs_per_issue": run_min_per_issue,
+            "teacher_pair_fraction_max": MAX_TEACHER_PAIR_FRACTION,
+        },
         "candidate_sha256": sha256_file(run_dir / "candidates.jsonl"),
         "review_results_sha256": sha256_file(
             run_dir / "review_results.json"

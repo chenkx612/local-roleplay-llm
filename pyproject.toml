@@ -26,6 +26,7 @@ roleplay-dpo-data = "roleplay.dpo_data:main"
 roleplay-dpo-editability = "roleplay.dpo_editability:main"
 roleplay-post-grpo-dpo-data = "roleplay.post_grpo_dpo_data:main"
 roleplay-post-grpo-dpo = "roleplay.post_grpo_dpo:main"
+roleplay-post-grpo-dpo-sampling = "roleplay.post_grpo_dpo_sampling:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
