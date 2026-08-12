@@ -3,6 +3,7 @@
 > **历史文档：** 本方案属于旧版 `SFT → 主观 Judge GRPO` 流程。正式运行已失败并封存，不再
 > 作为当前训练链路或未来规则型 GRPO 的设计依据。当前阶段三见
 > [`STAGE3_DPO_PLAN.md`](STAGE3_DPO_PLAN.md)；未来阶段四 GRPO 将使用独立的规则型 Prompt。
+> v2 实际结果与问题已归档到 [`V2_RETROSPECTIVE.md`](V2_RETROSPECTIVE.md)。
 
 ## 1. 目标
 
@@ -66,7 +67,7 @@ adapter 有非零更新且能够重新加载。技术失败时保留日志并停
 
 - 技术检查和 Dev 评估均通过：状态记为 `ready_for_eval`，进入阶段四。
 - 任一门槛失败：状态记为 `grpo_failed`，保留结果，不继续调参。
-- 将实际配置、产物、观察和阶段决定写入 `RUNLOG.md`；已知问题写入 `ISSUES.md`。
+- 实际配置、产物、观察、问题和阶段决定现已归档到 `V2_RETROSPECTIVE.md`。
 
 ## 3. 最小产物
 

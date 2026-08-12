@@ -1,10 +1,8 @@
 # morgana-v2 执行规约
 
-本文承接 `PLAN.md` 中不影响理解核心逻辑、但执行时必须明确的固定细节。这里记录预定配置与
-验收口径；实际运行及偏差写入 `RUNLOG.md`，发现的问题写入 `ISSUES.md`。
-
-`RUNLOG.md` 只记录 v2 的实际情况；`ISSUES.md` 中的 v1 内容保持封存，v2 新问题必须明确标注
-版本。
+> v2 已于 2026-08-13 收尾。本文作为历史执行规约保留；原 v2 计划、实际运行、问题与 v3 建议
+> 已统一归档到 [`V2_RETROSPECTIVE.md`](V2_RETROSPECTIVE.md)。`PLAN.md`、`RUNLOG.md` 和
+> `ISSUES.md` 已重置为 v3 入口。
 
 ## 1. 运行边界与技术基线
 
@@ -22,7 +20,7 @@
 - Base、SFT、DPO、GRPO 比较固定使用同一模型 revision、聊天模板和生成参数；学习项目允许使用
   同一可用推理链路，不要求为此额外搭建 Transformers 专用环境。
 
-v1 的结论保留在 `V1_RETROSPECTIVE.md` 和 `ISSUES.md`，raw 数据和模型产物已清理。
+v1 的结论保留在 `V1_RETROSPECTIVE.md`，raw 数据和模型产物已清理。
 角色源设定可以复用，但必须重新保存 v2 输入快照和哈希；v1 的 system prompt、
 Teacher 标签、Base 输出和 SFT adapter 不进入 v2 训练或正式评测。
 
@@ -74,7 +72,7 @@ Teacher 依次检查生成稳定性、角色一致性和对话质量。合格回
 先运行五类场景各一条的 Pilot 并人工复核，再生成 50 条 Teacher-corrected 正式标签。根据第三次
 SFT 的 Dev bad case，另加 12 条人工复核的定向样本，覆盖主客体识别、事件与情绪识别、身份边界、
 问题意图与回答相关性，最终共 62 条。正式产物必须结构正确、逐条对齐、回答非空，且没有乱码和
-明显复读。在人工复核结论、关键统计和哈希写入 `RUNLOG.md` 与复核文档后，
+明显复读。在人工复核结论、关键统计和哈希写入历史记录与复核文档后，
 Student baseline 和 Teacher audit 全量文件可作为 raw 中间产物删除；保留定向补强源文件、
 最终训练标签，并至少保留一组完整的 Student baseline、Teacher 判断与最终回答对照，
 作为该阶段的最小可检查产物。
@@ -114,7 +112,8 @@ gradient_accumulation_steps: 2
 enable_thinking: false
 ```
 
-该配置从第二次 SFT 起保持不变。第一次 SFT 的配置和结果已写入 `RUNLOG.md`；
+该配置从第二次 SFT 起保持不变。第一次 SFT 的配置和结果现已归档到
+`V2_RETROSPECTIVE.md`；
 其 raw 产物在阶段 2 收尾后删除。第二、三次使用 50 条数据，
 把有效 batch size 从 16 降到 4，使 3 epochs 下的预期 optimizer step 从 12 增加到 39。下一次
 训练只把数据增加到 62 条，对应 48 个 optimizer steps；物理 batch size 仍为 2、梯度累积仍为 2，
