@@ -1,5 +1,16 @@
 # morgana-v2 运行日志
 
+## 2026-08-13：Post-GRPO DPO 扩充数据并入训练入口
+
+- 扩充采样 run `20260813-0051` 对60条新 Prompt 每题批量生成8个候选，共480条；465条进入
+  匿名裁决。最终形成41对：背景编造13对、视角错位12对、情绪承接16对，其中原生 pair 32对、
+  Teacher chosen 9对（21.95%）。扩充训练集 SHA-256 为
+  `0da3fc2e8ff790c7c12d82714c9f85f4b5529e047c67cb1f2c46ec326bf031e7`。
+- `roleplay-post-grpo-dpo run` 现在分别校验原始20对、扩充41对及两份审计文件，然后按固定顺序
+  合并为61对实际训练输入。三个目标合计为19/19/23对，Teacher chosen 总计14对（22.95%）。
+- 保持1 epoch、batch size 1、梯度累积2不变，optimizer steps 从10调整为31；归档中的
+  `train.jsonl` 是实际送入 ms-swift 的61对合并文件，run summary 同时记录两个来源的条数和哈希。
+
 ## 2026-08-13：Post-GRPO DPO 提高单一训练强度
 
 - 首次 run `20260813-0001` 技术训练有效，但9条隔离 holdout 中7条与 GRPO 逐字相同；背景编造

@@ -69,6 +69,9 @@ GRPO_ADAPTER_RELATIVE_PATH = Path(
 DEFAULT_OUTPUT_RELATIVE_PATH = Path(
     "output/morgana-v2/post-grpo-dpo/sampling"
 )
+EXPANSION_TRAIN_RELATIVE_PATH = Path(
+    "data/runs/morgana-v2/post_grpo_dpo_train_expansion.jsonl"
+)
 
 EXPANSION_PROMPTS_SHA256 = (
     "c2e323a40ea5c16c74c7e8727a61ae35e66eb4a3bec9eeb70290360f46ff65ed"
@@ -211,7 +214,11 @@ def validate_expansion_prompt_data(
     comparison_paths = [
         path
         for path in (root / "data/runs/morgana-v2").glob("*.jsonl")
-        if path.resolve() != prompt_path.resolve()
+        if path.resolve()
+        not in {
+            prompt_path.resolve(),
+            (root / EXPANSION_TRAIN_RELATIVE_PATH).resolve(),
+        }
     ]
     comparison_paths.append(root / "data/style_examples.jsonl")
     for path in comparison_paths:

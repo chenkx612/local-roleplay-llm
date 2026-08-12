@@ -13,7 +13,13 @@ from unittest.mock import patch
 
 from roleplay.post_grpo_dpo import (
     ADAPTER_FILES,
+    EXPANSION_TRAIN_PAIR_COUNT,
+    EXPANSION_TRAIN_RELATIVE_PATH,
+    EXPANSION_TRAIN_SHA256,
     EXPECTED_ARCHIVE_FILES,
+    ORIGINAL_TRAIN_PAIR_COUNT,
+    ORIGINAL_TRAIN_RELATIVE_PATH,
+    ORIGINAL_TRAIN_SHA256,
     PostGRPODPOError,
     _load_yaml,
     build_parser,
@@ -33,7 +39,7 @@ from roleplay.post_grpo_dpo import (
 from roleplay.stage2_sft import sha256_file, write_json_atomic
 
 
-def dpo_rows(count=20):
+def dpo_rows(count=20, start=1):
     return [
         {
             "messages": [
@@ -43,7 +49,7 @@ def dpo_rows(count=20):
             ],
             "rejected_response": f"拒选 {index}",
         }
-        for index in range(1, count + 1)
+        for index in range(start, start + count)
     ]
 
 
@@ -153,8 +159,15 @@ def review_artifacts(run_dir: Path, *, submitted=True, automatic=True) -> None:
 
 class FrozenInputTests(unittest.TestCase):
     def test_repository_contract_is_frozen(self):
-        rows = validate_training_rows(
-            Path("data/runs/morgana-v2/post_grpo_dpo_train.jsonl")
+        original = validate_training_rows(
+            ORIGINAL_TRAIN_RELATIVE_PATH,
+            ORIGINAL_TRAIN_SHA256,
+            ORIGINAL_TRAIN_PAIR_COUNT,
+        )
+        expansion = validate_training_rows(
+            EXPANSION_TRAIN_RELATIVE_PATH,
+            EXPANSION_TRAIN_SHA256,
+            EXPANSION_TRAIN_PAIR_COUNT,
         )
         holdout = validate_holdout_rows(
             Path("data/runs/morgana-v2/post_grpo_dpo_holdout.jsonl")
@@ -166,21 +179,19 @@ class FrozenInputTests(unittest.TestCase):
             _load_yaml(Path("configs/morgana_v2_post_grpo_dpo.yaml"))
         )
 
-        self.assertEqual(len(rows), 20)
+        self.assertEqual(len(original), 20)
+        self.assertEqual(len(expansion), 41)
         self.assertEqual(len(holdout), 9)
         self.assertEqual(len(adapter), 3)
-        self.assertEqual(steps, 10)
+        self.assertEqual(steps, 31)
 
     def test_rejects_data_config_holdout_and_adapter_drift(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             train = root / "train.jsonl"
             write_jsonl(train, dpo_rows(19))
-            with patch(
-                "roleplay.post_grpo_dpo.TRAIN_SHA256", sha256_file(train)
-            ):
-                with self.assertRaisesRegex(PostGRPODPOError, "必须为 20"):
-                    validate_training_rows(train)
+            with self.assertRaisesRegex(PostGRPODPOError, "必须为 20"):
+                validate_training_rows(train, sha256_file(train), 20)
 
             holdout = root / "holdout.jsonl"
             rows = holdout_rows()
@@ -209,8 +220,13 @@ class RunWorkflowTests(unittest.TestCase):
     def _run(self, root: Path, *, fail=False):
         repo = root / "repo"
         train = repo / "data/runs/morgana-v2/post_grpo_dpo_train.jsonl"
+        expansion_train = (
+            repo
+            / "data/runs/morgana-v2/post_grpo_dpo_train_expansion.jsonl"
+        )
         config_path = repo / "configs/morgana_v2_post_grpo_dpo.yaml"
         write_jsonl(train, dpo_rows())
+        write_jsonl(expansion_train, dpo_rows(41, start=21))
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(
             Path("configs/morgana_v2_post_grpo_dpo.yaml").read_text(
@@ -318,7 +334,7 @@ class RunWorkflowTests(unittest.TestCase):
             ),
             patch(
                 "roleplay.post_grpo_dpo.validate_training_rows",
-                return_value=dpo_rows(),
+                side_effect=[dpo_rows(), dpo_rows(41, start=21)],
             ),
             patch(
                 "roleplay.post_grpo_dpo.validate_holdout_rows",
@@ -364,18 +380,35 @@ class RunWorkflowTests(unittest.TestCase):
                 return commands
             return run_post_grpo_dpo(root / "runs"), commands
 
-    def test_run_archives_valid_ten_step_training(self):
+    def test_run_archives_valid_merged_training(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             run_dir, commands = self._run(root)
             validate_archive_contract(run_dir)
             self.assertEqual(commands[0][0][:2], ["swift", "rlhf"])
-            self.assertEqual(commands[0][1], 10)
+            self.assertEqual(commands[0][1], 31)
+            self.assertEqual(
+                len(
+                    [
+                        line
+                        for line in (run_dir / "train.jsonl")
+                        .read_text(encoding="utf-8")
+                        .splitlines()
+                        if line
+                    ]
+                ),
+                61,
+            )
             summary = json.loads(
                 (run_dir / "run_summary.json").read_text(encoding="utf-8")
             )
             self.assertEqual(summary["status"], "awaiting_manual_review")
-            self.assertEqual(summary["training"]["optimizer_steps"], 10)
+            self.assertEqual(summary["training"]["optimizer_steps"], 31)
+            self.assertEqual(summary["training"]["training_pairs"], 61)
+            self.assertEqual(
+                summary["training"]["source_pair_counts"],
+                {"original": 20, "expansion": 41},
+            )
 
     def test_failure_retains_inspectable_work(self):
         with tempfile.TemporaryDirectory() as temporary:

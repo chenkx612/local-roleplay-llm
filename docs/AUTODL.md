@@ -259,8 +259,8 @@ roleplay-stage4-grpo review \
 
 ## 6. Post-GRPO DPO
 
-该阶段固定使用20对训练数据和 `20260812-2144` GRPO adapter，训练1个 epoch、10个
-optimizer steps。9条 holdout 只在训练后用于 GRPO/DPO 对比，不进入训练。
+该阶段固定合并原始20对与扩充41对训练数据，并使用 `20260812-2144` GRPO adapter，训练
+1个 epoch、31个 optimizer steps。9条 holdout 只在训练后用于 GRPO/DPO 对比，不进入训练。
 
 ### 6.1 AutoDL 训练与发布
 
@@ -336,8 +336,7 @@ roleplay-post-grpo-dpo-sampling run
 相同内容同步保存在 `sampling.log`。完成后在 AutoDL 发布：
 
 ```bash
-roleplay-post-grpo-dpo-sampling publish \
-  --run-dir output/morgana-v2/post-grpo-dpo/sampling/<run-id>
+roleplay-post-grpo-dpo-sampling publish --run-dir output/morgana-v2/post-grpo-dpo/sampling/<run-id>
 ```
 
 回到本地下载：

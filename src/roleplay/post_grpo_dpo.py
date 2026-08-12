@@ -56,11 +56,17 @@ from roleplay.stage3_dpo import Stage3DPOError, inspect_adapter_change
 MODEL_ID = "Qwen/Qwen3.5-2B"
 MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_post_grpo_dpo.yaml")
-TRAIN_RELATIVE_PATH = Path(
+ORIGINAL_TRAIN_RELATIVE_PATH = Path(
     "data/runs/morgana-v2/post_grpo_dpo_train.jsonl"
 )
-TRAIN_AUDIT_RELATIVE_PATH = Path(
+ORIGINAL_TRAIN_AUDIT_RELATIVE_PATH = Path(
     "data/runs/morgana-v2/post_grpo_dpo_train_audit.json"
+)
+EXPANSION_TRAIN_RELATIVE_PATH = Path(
+    "data/runs/morgana-v2/post_grpo_dpo_train_expansion.jsonl"
+)
+EXPANSION_TRAIN_AUDIT_RELATIVE_PATH = Path(
+    "data/runs/morgana-v2/post_grpo_dpo_train_expansion_audit.json"
 )
 HOLDOUT_RELATIVE_PATH = Path(
     "data/runs/morgana-v2/post_grpo_dpo_holdout.jsonl"
@@ -75,9 +81,17 @@ DEFAULT_OUTPUT_RELATIVE_PATH = Path(
     "output/morgana-v2/post-grpo-dpo/train"
 )
 
-TRAIN_SHA256 = "0dc429a33d67fd79d2e22012927af538037da19f5e4bd748c929f792f4490abc"
-TRAIN_AUDIT_SHA256 = (
+ORIGINAL_TRAIN_SHA256 = (
+    "0dc429a33d67fd79d2e22012927af538037da19f5e4bd748c929f792f4490abc"
+)
+ORIGINAL_TRAIN_AUDIT_SHA256 = (
     "a7395ea3ac461843c5e8b1946b1e4cb83d4da46b3a660fe283fe54e1e1de0b2e"
+)
+EXPANSION_TRAIN_SHA256 = (
+    "0da3fc2e8ff790c7c12d82714c9f85f4b5529e047c67cb1f2c46ec326bf031e7"
+)
+EXPANSION_TRAIN_AUDIT_SHA256 = (
+    "cffbf64a75d98ebe85bad49addc43c41ce57aa62e093c2d129f22bbea5a37f68"
 )
 HOLDOUT_SHA256 = "59e043347e1b1436f75ed357e5edd10adef1ad2e749003dea5e195b3ec2bedde"
 SYSTEM_PROMPT_SHA256 = (
@@ -94,7 +108,9 @@ GRPO_ADAPTER_HASHES = {
         "2b7ed6cc0ca6c21dc39bf80fd3351f5f87c462df23a237dd6ad20473eb9a33a2"
     ),
 }
-TRAIN_PAIR_COUNT = 20
+ORIGINAL_TRAIN_PAIR_COUNT = 20
+EXPANSION_TRAIN_PAIR_COUNT = 41
+TRAIN_PAIR_COUNT = ORIGINAL_TRAIN_PAIR_COUNT + EXPANSION_TRAIN_PAIR_COUNT
 HOLDOUT_COUNT = 9
 TARGET_ISSUES = (
     "fabricated_background",
@@ -186,12 +202,14 @@ def validate_grpo_adapter(adapter_dir: Path) -> dict[str, str]:
     }
 
 
-def validate_training_rows(path: Path) -> list[dict[str, Any]]:
-    validate_frozen_file(path, TRAIN_SHA256)
+def validate_training_rows(
+    path: Path, expected_sha256: str, expected_count: int
+) -> list[dict[str, Any]]:
+    validate_frozen_file(path, expected_sha256)
     rows = read_jsonl(path)
-    if len(rows) != TRAIN_PAIR_COUNT:
+    if len(rows) != expected_count:
         raise PostGRPODPOError(
-            f"DPO 偏好对必须为 {TRAIN_PAIR_COUNT}，实际 {len(rows)}"
+            f"DPO 偏好对必须为 {expected_count}，实际 {len(rows)}"
         )
     for index, row in enumerate(rows, 1):
         if set(row) != {"messages", "rejected_response"}:
@@ -296,8 +314,8 @@ def validate_training_config(config: dict[str, Any]) -> int:
         )
         * config["num_train_epochs"]
     )
-    if steps != 10:
-        raise PostGRPODPOError(f"预期 optimizer steps 不再是 10: {steps}")
+    if steps != 31:
+        raise PostGRPODPOError(f"预期 optimizer steps 不再是 31: {steps}")
     return steps
 
 
@@ -628,20 +646,42 @@ def run_post_grpo_dpo(output_root: Path | None = None) -> Path:
         summary["packages"] = packages
         del torch_module
 
-        train_path = repo_dir / TRAIN_RELATIVE_PATH
-        audit_path = repo_dir / TRAIN_AUDIT_RELATIVE_PATH
+        original_train_path = repo_dir / ORIGINAL_TRAIN_RELATIVE_PATH
+        expansion_train_path = repo_dir / EXPANSION_TRAIN_RELATIVE_PATH
         holdout_path = repo_dir / HOLDOUT_RELATIVE_PATH
         system_path = repo_dir / SYSTEM_PROMPT_RELATIVE_PATH
         adapter_dir = repo_dir / GRPO_ADAPTER_RELATIVE_PATH
-        rows = validate_training_rows(train_path)
+        original_rows = validate_training_rows(
+            original_train_path,
+            ORIGINAL_TRAIN_SHA256,
+            ORIGINAL_TRAIN_PAIR_COUNT,
+        )
+        expansion_rows = validate_training_rows(
+            expansion_train_path,
+            EXPANSION_TRAIN_SHA256,
+            EXPANSION_TRAIN_PAIR_COUNT,
+        )
+        rows = [*original_rows, *expansion_rows]
+        users = [row["messages"][1]["content"] for row in rows]
+        if len(users) != len(set(users)):
+            raise PostGRPODPOError("原始与扩充 DPO 数据存在重复 Prompt")
         holdout = validate_holdout_rows(holdout_path)
         inputs = {
-            str(TRAIN_RELATIVE_PATH): {
-                "sha256": TRAIN_SHA256,
-                "records": len(rows),
+            str(ORIGINAL_TRAIN_RELATIVE_PATH): {
+                "sha256": ORIGINAL_TRAIN_SHA256,
+                "records": len(original_rows),
             },
-            str(TRAIN_AUDIT_RELATIVE_PATH): validate_frozen_file(
-                audit_path, TRAIN_AUDIT_SHA256
+            str(ORIGINAL_TRAIN_AUDIT_RELATIVE_PATH): validate_frozen_file(
+                repo_dir / ORIGINAL_TRAIN_AUDIT_RELATIVE_PATH,
+                ORIGINAL_TRAIN_AUDIT_SHA256,
+            ),
+            str(EXPANSION_TRAIN_RELATIVE_PATH): {
+                "sha256": EXPANSION_TRAIN_SHA256,
+                "records": len(expansion_rows),
+            },
+            str(EXPANSION_TRAIN_AUDIT_RELATIVE_PATH): validate_frozen_file(
+                repo_dir / EXPANSION_TRAIN_AUDIT_RELATIVE_PATH,
+                EXPANSION_TRAIN_AUDIT_SHA256,
             ),
             str(HOLDOUT_RELATIVE_PATH): {
                 "sha256": HOLDOUT_SHA256,
@@ -684,7 +724,7 @@ def run_post_grpo_dpo(output_root: Path | None = None) -> Path:
         del processor
 
         train_data = work_dir / "train.jsonl"
-        shutil.copy2(train_path, train_data)
+        write_jsonl_exclusive(train_data, rows)
         train_output = work_dir / "swift-output"
         config["dataset"] = str(train_data)
         config["output_dir"] = str(train_output)
@@ -695,6 +735,11 @@ def run_post_grpo_dpo(output_root: Path | None = None) -> Path:
         summary["training"] = {
             "config_source": str(CONFIG_RELATIVE_PATH),
             "config_sha256": sha256_file(source_config),
+            "training_pairs": len(rows),
+            "source_pair_counts": {
+                "original": len(original_rows),
+                "expansion": len(expansion_rows),
+            },
             "planned_optimizer_steps": planned_steps,
             "max_sequence_tokens": max(token_lengths),
         }
