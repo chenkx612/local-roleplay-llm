@@ -88,10 +88,10 @@ ORIGINAL_TRAIN_AUDIT_SHA256 = (
     "a7395ea3ac461843c5e8b1946b1e4cb83d4da46b3a660fe283fe54e1e1de0b2e"
 )
 EXPANSION_TRAIN_SHA256 = (
-    "0da3fc2e8ff790c7c12d82714c9f85f4b5529e047c67cb1f2c46ec326bf031e7"
+    "b305148a7ba69b96fcab2cf480611f754779abcdd4ace0525b311ce36732023b"
 )
 EXPANSION_TRAIN_AUDIT_SHA256 = (
-    "cffbf64a75d98ebe85bad49addc43c41ce57aa62e093c2d129f22bbea5a37f68"
+    "33c7ca2ba96897c5163dfa626eead680d221fe0e8a7c04419d5fa1249fe9c192"
 )
 HOLDOUT_SHA256 = "59e043347e1b1436f75ed357e5edd10adef1ad2e749003dea5e195b3ec2bedde"
 SYSTEM_PROMPT_SHA256 = (
@@ -151,9 +151,9 @@ EXPECTED_CONFIG = {
     "loss_type": "sigmoid",
     "rpo_alpha": 0.3,
     "num_train_epochs": 1,
-    "per_device_train_batch_size": 1,
-    "gradient_accumulation_steps": 2,
-    "learning_rate": 1.0e-6,
+    "per_device_train_batch_size": 2,
+    "gradient_accumulation_steps": 1,
+    "learning_rate": 2.0e-7,
     "gradient_checkpointing": True,
     "enable_thinking": False,
     "add_non_thinking_prefix": True,

@@ -1,14 +1,29 @@
 # morgana-v2 运行日志
 
+## 2026-08-13：Post-GRPO DPO `20260813-0124` 诊断与下一轮修正
+
+- `20260813-0124` 使用合并后的61对数据完成31个 optimizer steps，但仍沿用
+  `batch size=1`、梯度累积2、`learning_rate=1e-6`。自动门禁失败：Reward v2 均分从 GRPO
+  的 `-1.7933` 改善到 `-1.1202`，错误自称从15次降到11次，但退化样例和异常符号样例均从
+  1条增加到3条；该 adapter 不进入最终评测。
+- 复查发现扩充数据的9条 Teacher chosen 只在 rejected 前增加事实边界声明，随后仍继续编造。
+  现已将其全部重写为自然的“不确认未知前提、停止补写事实、邀请莲提供线索”回应；Reward v2
+  均为 `4.80～5.98`，且相对各自 rejected 的 gap 全部为正。扩充训练集新 SHA-256 为
+  `b305148a7ba69b96fcab2cf480611f754779abcdd4ace0525b311ce36732023b`。
+- 下一轮固定为1 epoch、`per_device_train_batch_size=2`、`gradient_accumulation_steps=1`、
+  `learning_rate=2e-7`，有效 batch 仍为2，61对数据仍对应31个 optimizer steps。
+
 ## 2026-08-13：Post-GRPO DPO 扩充数据并入训练入口
 
 - 扩充采样 run `20260813-0051` 对60条新 Prompt 每题批量生成8个候选，共480条；465条进入
   匿名裁决。最终形成41对：背景编造13对、视角错位12对、情绪承接16对，其中原生 pair 32对、
   Teacher chosen 9对（21.95%）。扩充训练集 SHA-256 为
-  `0da3fc2e8ff790c7c12d82714c9f85f4b5529e047c67cb1f2c46ec326bf031e7`。
+  `b305148a7ba69b96fcab2cf480611f754779abcdd4ace0525b311ce36732023b`；其中9条
+  Teacher chosen 已在 `20260813-0124` 诊断后完成语义重写。
 - `roleplay-post-grpo-dpo run` 现在分别校验原始20对、扩充41对及两份审计文件，然后按固定顺序
   合并为61对实际训练输入。三个目标合计为19/19/23对，Teacher chosen 总计14对（22.95%）。
-- 保持1 epoch、batch size 1、梯度累积2不变，optimizer steps 从10调整为31；归档中的
+- 下一轮保持1 epoch，将物理 batch size 调整为2、梯度累积调整为1，并将学习率降为 `2e-7`；
+  optimizer steps 仍为31。归档中的
   `train.jsonl` 是实际送入 ms-swift 的61对合并文件，run summary 同时记录两个来源的条数和哈希。
 
 ## 2026-08-13：Post-GRPO DPO 提高单一训练强度
