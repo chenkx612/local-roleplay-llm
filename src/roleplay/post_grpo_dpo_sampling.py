@@ -321,6 +321,7 @@ class TransformersSamplingRuntime:
         self._engine = TransformersEngine(
             model,
             template=get_template(processor, enable_thinking=False),
+            max_batch_size=CANDIDATES_PER_PROMPT,
         )
 
     def generate(

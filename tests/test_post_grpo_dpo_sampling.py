@@ -3,8 +3,10 @@
 import hashlib
 import io
 import json
+import sys
 import tarfile
 import tempfile
+import types
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -27,6 +29,7 @@ from roleplay.post_grpo_dpo_sampling import (
     PROMPT_COUNT,
     TOTAL_CANDIDATES,
     PostGRPODPOSamplingError,
+    TransformersSamplingRuntime,
     _artifact,
     batch_seed,
     build_candidate_records,
@@ -148,6 +151,54 @@ class CandidateContractTests(unittest.TestCase):
         self.assertFalse(unresolved)
         self.assertEqual(len(packet["items"][0]["answers"]), 6)
         self.assertEqual(len(key["items"][0]["labels"]), 6)
+
+
+class SamplingRuntimeTests(unittest.TestCase):
+    def test_transformers_engine_batches_all_candidates_per_prompt(self):
+        engine_calls = []
+        fake_torch = types.ModuleType("torch")
+        fake_torch.float32 = object()
+        fake_torch.cuda = types.SimpleNamespace(empty_cache=lambda: None)
+
+        fake_peft = types.ModuleType("peft")
+        fake_peft.PeftModel = types.SimpleNamespace(
+            from_pretrained=lambda model, adapter_dir: model
+        )
+
+        fake_swift = types.ModuleType("swift")
+        fake_swift.InferRequest = object
+        fake_swift.RequestConfig = lambda **kwargs: kwargs
+        fake_swift.get_model_processor = lambda *args, **kwargs: (
+            object(),
+            object(),
+        )
+        fake_swift.get_template = lambda *args, **kwargs: object()
+
+        def fake_engine(*args, **kwargs):
+            engine_calls.append((args, kwargs))
+            return object()
+
+        fake_swift.TransformersEngine = fake_engine
+
+        fake_transformers = types.ModuleType("transformers")
+        fake_transformers.BitsAndBytesConfig = lambda **kwargs: kwargs
+
+        with patch.dict(
+            sys.modules,
+            {
+                "torch": fake_torch,
+                "peft": fake_peft,
+                "swift": fake_swift,
+                "transformers": fake_transformers,
+            },
+        ):
+            runtime = TransformersSamplingRuntime(Path("adapter"))
+
+        self.assertEqual(len(engine_calls), 1)
+        self.assertEqual(
+            engine_calls[0][1]["max_batch_size"], CANDIDATES_PER_PROMPT
+        )
+        runtime.close()
 
 
 class SamplingRunTests(unittest.TestCase):
