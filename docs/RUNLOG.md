@@ -1,5 +1,26 @@
 # morgana-v2 运行日志
 
+## 2026-08-12：Post-GRPO DPO 候选采样与 Pair 冻结
+
+- 轻量 DPO 只优化三个明确问题：背景编造、人物视角错位和情绪承接；不扩展到答非所问、
+  过度顺从或一般语言自然度，避免学习目标过宽且难以归因。
+- 新增30条训练 Prompt，三个目标各10条；新增9条隔离 holdout，三个目标各3条。每条 Prompt
+  只携带一个 `target_issue` 和对应 `preference_criteria`。
+- 两个 split 已验证与现有 SFT、旧 DPO、GRPO、Dev、Eval 等 JSONL 输入无规范化精确重复，
+  并通过 manifest 冻结内容哈希；holdout 未进入本次候选采样或训练集。
+- 数据 run `20260812-2317` 从精确哈希锁定的 `20260812-2144` GRPO adapter 出发，一次加载
+  MLX 模型，对30条训练 Prompt 各使用6个唯一 seed 采样，共180条。生成参数固定为
+  `temperature=0.6`、`top_p=0.8`、`top_k=20`、`repetition_penalty=1.45`、`max_tokens=512`，
+  thinking 关闭；全部候选正常停止。
+- Reward v2 硬过滤排除17条括号不平衡候选，163条进入匿名逐题裁决。最终冻结20对：背景编造
+  6对、视角错位7对、情绪承接7对；每题最多一对，10题因没有同时具备干净 chosen 和真实
+  单缺陷 rejected 而丢弃，没有补采样或人工制造 rejected。
+- 15对 chosen 来自模型原生候选；背景类因原生正确候选稀缺，另有5对使用定向 Teacher chosen，
+  占比恰为25%。5条修改均通过 `0.70～1.30` 长度比、字符相似度至少 `0.50` 和 Reward v2
+  硬有效性校验。训练集 SHA-256 为
+  `0dc429a33d67fd79d2e22012927af538037da19f5e4bd748c929f792f4490abc`；run 状态为
+  `ready_for_dpo`，本阶段只构造数据，尚未启动 DPO 训练。
+
 ## 2026-08-12：Stage 4 Reward v2 run `20260812-2144` 与阶段决策
 
 - run 使用 commit `a476e84b1d5e167047f95af91ef74d2057c43cca`，AutoDL vGPU 实际识别为

@@ -24,6 +24,8 @@ roleplay-stage4-grpo = "roleplay.stage4_grpo:main"
 roleplay-grpo-candidates = "roleplay.grpo_candidates:main"
 roleplay-dpo-data = "roleplay.dpo_data:main"
 roleplay-dpo-editability = "roleplay.dpo_editability:main"
+roleplay-post-grpo-dpo-data = "roleplay.post_grpo_dpo_data:main"
+roleplay-post-grpo-dpo = "roleplay.post_grpo_dpo:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

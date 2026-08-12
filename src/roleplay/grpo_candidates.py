@@ -109,11 +109,16 @@ def _adapter_modules(peft_keys: Iterable[str]) -> tuple[list[str], set[int]]:
     return sorted(modules), layers
 
 
-def convert_peft_adapter_to_mlx(source_dir: Path, output_dir: Path) -> Path:
-    """Convert the frozen PEFT adapter into MLX-LM's inference format."""
+def convert_peft_adapter_to_mlx(
+    source_dir: Path,
+    output_dir: Path,
+    *,
+    expected_sha256: str = PEFT_ADAPTER_SHA256,
+) -> Path:
+    """Convert one hash-pinned PEFT adapter into MLX-LM's inference format."""
     weights_path = source_dir / "adapter_model.safetensors"
     config_path = source_dir / "adapter_config.json"
-    require_hash(weights_path, PEFT_ADAPTER_SHA256)
+    require_hash(weights_path, expected_sha256)
     if not config_path.is_file():
         raise CandidateGenerationError(f"缺少 PEFT adapter 配置: {config_path}")
 
@@ -165,7 +170,7 @@ def convert_peft_adapter_to_mlx(source_dir: Path, output_dir: Path) -> Path:
                     "keys": modules,
                 },
                 "source_format": "peft",
-                "source_sha256": PEFT_ADAPTER_SHA256,
+                "source_sha256": expected_sha256,
             },
             ensure_ascii=False,
             indent=2,

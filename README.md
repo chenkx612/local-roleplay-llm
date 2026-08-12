@@ -3,7 +3,7 @@
 一个用于学习角色扮演模型后训练流程的轻量项目。目标是用最小规模的数据和配置，完整走通：
 
 ```text
-Persona 与数据准备 → Base 评测 → SFT → DPO → 规则型 GRPO → 统一评测 → 复盘
+Persona 与数据准备 → Base 评测 → SFT → 前置 DPO → 规则型 GRPO → post-GRPO DPO → 统一评测 → 复盘
 ```
 
 项目强调流程完整、结果可检查，不面向生产环境或大规模训练。
@@ -31,6 +31,8 @@ roleplay-sft-data --help
 roleplay-stage2-sft --help
 roleplay-dpo-data --help
 roleplay-stage3-dpo --help
+roleplay-post-grpo-dpo-data --help
+roleplay-post-grpo-dpo --help
 roleplay-stage4-grpo --help
 ```
 

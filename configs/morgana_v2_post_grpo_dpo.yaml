@@ -1,0 +1,53 @@
+rlhf_type: dpo
+model: Qwen/Qwen3.5-2B
+model_revision: 965dcc54bc9c0591873df0e9869c056a54d323d1
+use_hf: true
+
+dataset: __DPO_DATA__
+split_dataset_ratio: 0.0
+
+tuner_type: lora
+adapters:
+  - output/morgana-v2/stage4-grpo/20260812-2144/adapter
+ref_adapters:
+  - output/morgana-v2/stage4-grpo/20260812-2144/adapter
+target_modules:
+  - all-linear
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+
+torch_dtype: float32
+fp16: false
+bf16: false
+quant_method: bnb
+quant_bits: 4
+bnb_4bit_compute_dtype: float32
+bnb_4bit_quant_type: nf4
+bnb_4bit_use_double_quant: true
+lora_dtype: float32
+
+max_length: 1024
+loss_scale: last_round
+beta: 0.1
+loss_type: sigmoid
+rpo_alpha: 0.3
+num_train_epochs: 1
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 2
+learning_rate: 5.0e-7
+gradient_checkpointing: true
+enable_thinking: false
+add_non_thinking_prefix: true
+packing: false
+padding_free: false
+
+logging_steps: 1
+save_strategy: epoch
+save_total_limit: 1
+save_only_model: true
+seed: 20260812
+data_seed: 20260812
+report_to: none
+output_dir: __DPO_OUTPUT__
+add_version: false

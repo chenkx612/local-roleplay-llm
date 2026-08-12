@@ -1,7 +1,7 @@
 # AutoDL：SFT、DPO 与 GRPO
 
-在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的阶段二 SFT、阶段三 DPO、历史主观 GRPO 和
-Stage 4 规则型 GRPO。
+在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的阶段二 SFT、阶段三 DPO、历史主观 GRPO、
+Stage 4 规则型 GRPO 和最终的 post-GRPO DPO。
 
 ## 1. 准备
 
@@ -256,3 +256,62 @@ roleplay-stage4-grpo review \
 
 `review` 会完整记录匿名胜负和三维评分，但只以 GRPO 相对 SFT 新增的严重问题阻断
 `ready_for_eval`。自动规则门槛失败时，即使人工复核通过也不会进入 Eval。
+
+## 6. Post-GRPO DPO
+
+该阶段固定使用20对训练数据和 `20260812-2144` GRPO adapter，训练1个 epoch、10个
+optimizer steps。9条 holdout 只在训练后用于 GRPO/DPO 对比，不进入训练。
+
+### 6.1 AutoDL 训练与发布
+
+先确认 GRPO adapter 位于
+`output/morgana-v2/stage4-grpo/20260812-2144/adapter/`；若当前机器没有，先下载 Stage 4
+Release：
+
+```bash
+roleplay-stage4-grpo download \
+  --tag morgana-v2-stage4-grpo-20260812-2144
+```
+
+然后运行：
+
+```bash
+cd /root/autodl-tmp/roleplay
+git pull --ff-only
+python -m pip install \
+  -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+  -r requirements/stage3_dpo_autodl.txt
+python -m pip install -e .
+
+tmux new -s roleplay-post-dpo
+roleplay-post-grpo-dpo run
+```
+
+训练完成后发布输出中的 `<run-id>`：
+
+```bash
+gh auth login  # 仅首次需要
+roleplay-post-grpo-dpo publish \
+  --run-dir output/morgana-v2/post-grpo-dpo/train/<run-id>
+```
+
+### 6.2 本地下载与复核
+
+```bash
+cd /Users/chenkx/roleplay
+git pull --ff-only
+python -m pip install -e .
+roleplay-post-grpo-dpo download \
+  --tag morgana-v2-post-grpo-dpo-<run-id>
+```
+
+对照 `manual_review_packet.json` 填写同目录的 `manual_review_results.json`，再提交复核：
+
+```bash
+roleplay-post-grpo-dpo review \
+  --run-dir output/morgana-v2/post-grpo-dpo/train/<run-id>
+```
+
+只有自动稳定性与 Reward v2 均未回退，且匿名人工复核通过，状态才会变为
+`ready_for_final_eval`。失败训练保留在 `.work/<run-id>/`，已存在的 run、发布包和下载目录均不会
+被覆盖。

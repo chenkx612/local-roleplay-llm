@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "objective": [
+    "fabricated_background",
+    "perspective_shift",
+    "emotion_response"
+  ],
+  "training_prompts": {
+    "path": "data/runs/morgana-v2/post_grpo_dpo_prompts.jsonl",
+    "records": 30,
+    "per_issue": 10,
+    "sha256": "cadd7c4168a746f20d7593756b32b301302ce0909a406a93e0c59cb8d8e7dae8"
+  },
+  "holdout_prompts": {
+    "path": "data/runs/morgana-v2/post_grpo_dpo_holdout.jsonl",
+    "records": 9,
+    "per_issue": 3,
+    "sha256": "59e043347e1b1436f75ed357e5edd10adef1ad2e749003dea5e195b3ec2bedde"
+  },
+  "policy": {
+    "one_target_issue_per_prompt": true,
+    "holdout_must_not_enter_training": true,
+    "existing_dev_eval_and_review_prompts_must_not_enter_training": true
+  }
+}
