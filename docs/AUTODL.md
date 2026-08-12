@@ -260,9 +260,9 @@ roleplay-stage4-grpo review \
 ## 6. Post-GRPO DPO
 
 该阶段固定合并原始20对与扩充41对训练数据，并使用 `20260812-2144` GRPO adapter，训练
-1个 epoch、物理 batch size 2、梯度累积1、学习率 `3e-7`、`rpo_alpha=0.1`，共31个
-optimizer steps。该配置作为 v2 最终版组合实验；9条 holdout 只在训练后用于 GRPO/DPO
-对比，不进入训练。
+1个 epoch、物理 batch size 2、梯度累积1、学习率 `3e-7`、`rpo_alpha=0.3`，共31个
+optimizer steps。该配置用于隔离验证相对 `20260813-0143` 单独提高学习率的效果；9条 holdout
+只在训练后用于 GRPO/DPO 对比，不进入训练。
 
 ### 6.1 AutoDL 训练与发布
 

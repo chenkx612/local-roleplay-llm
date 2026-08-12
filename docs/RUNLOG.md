@@ -1,5 +1,15 @@
 # morgana-v2 运行日志
 
+## 2026-08-13：Post-GRPO DPO 最后一次学习率隔离实验
+
+- v2 最终版组合 run `20260813-0201` 使用 `learning_rate=3e-7`、`rpo_alpha=0.1`。虽然退化与
+  异常符号样例均降为0，但 Reward v2 均分由 GRPO 的 `-1.7933` 降至 `-1.8143`，情绪承接
+  明显回退，并新增“本大爷”错误自称；该组合配置淘汰。
+- 最后一次受控实验将 `rpo_alpha` 恢复为 `0.3`，保留 `learning_rate=3e-7`。相对当前最佳
+  `20260813-0143`，本轮只提高学习率；其余61对数据、1 epoch、batch size 2、梯度累积1、
+  31个 optimizer steps、seed、holdout、推理参数和验收门槛全部保持不变。
+- 若该配置仍不优于 `0143`，停止继续扫描 post-GRPO DPO 超参数。
+
 ## 2026-08-13：Post-GRPO DPO v2 最终版组合实验
 
 - `20260813-0143` 使用修正后的61对数据、`learning_rate=2e-7`、`rpo_alpha=0.3` 完成31个

@@ -149,7 +149,7 @@ EXPECTED_CONFIG = {
     "loss_scale": "last_round",
     "beta": 0.1,
     "loss_type": "sigmoid",
-    "rpo_alpha": 0.1,
+    "rpo_alpha": 0.3,
     "num_train_epochs": 1,
     "per_device_train_batch_size": 2,
     "gradient_accumulation_steps": 1,
