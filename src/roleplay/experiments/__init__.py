@@ -1,0 +1,2 @@
+"""Explicit, inspectable experiment contracts."""
+

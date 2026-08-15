@@ -4,28 +4,58 @@ from __future__ import annotations
 
 import argparse
 import gc
-import hashlib
 import importlib.metadata
 import json
 import math
 import os
-import platform
 import random
-import re
-import shlex
 import shutil
 import subprocess
 import sys
-import tarfile
-import tempfile
-import time
 from collections.abc import Mapping, MutableMapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
-from zoneinfo import ZoneInfo
 
+from roleplay.core.artifacts import (
+    read_jsonl as _read_jsonl,
+    repository_root as _repository_root,
+    sha256_file,
+    write_json_atomic,
+    write_jsonl_exclusive,
+)
+from roleplay.core.release import (
+    ReleaseSpec,
+    create_release_bundle as _create_release_bundle,
+    download_release as _download_release,
+    extract_release_bundle as _extract_release_bundle,
+    format_download_command as _format_download_command,
+    publish_release as _publish_release,
+)
+from roleplay.core.runtime import (
+    ADAPTER_FILES,
+    DEFAULT_GITHUB_REPOSITORY,
+    DEFAULT_HF_ENDPOINT,
+    DEFAULT_HF_HOME,
+    DISABLED_ACCELERATION_PACKAGES,
+    EXPECTED_TRAINING_PRECISION,
+    PINNED_PACKAGES,
+    capture_environment as _capture_environment,
+    configure_huggingface_environment as _configure_huggingface_environment,
+    create_exclusive_directory as _create_exclusive_directory,
+    ensure_clean_tracked_status as _ensure_clean_tracked_status,
+    find_final_adapter as _find_final_adapter,
+    generate_run_id,
+    git_context as _git_context,
+    normalized_package_version,
+    read_metric,
+    run_logged as _run_logged,
+    training_progress,
+    validate_effective_training_args as _validate_effective_training_args,
+    validate_environment_snapshot as _validate_environment_snapshot,
+    validate_pinned_packages as _validate_pinned_packages,
+)
+from roleplay.experiments.morgana_v2 import MODEL_ID, MODEL_REVISION
 from roleplay.sft_eval import (
     EVALUATION_SEEDS,
     PRIMARY_EVALUATION_SEED,
@@ -37,37 +67,9 @@ from roleplay.sft_eval import (
 )
 
 
-MODEL_ID = "Qwen/Qwen3.5-2B"
-MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_sft.yaml")
 DEFAULT_OUTPUT_RELATIVE_PATH = Path("output/morgana-v2/stage2-sft")
 MIN_GPU_MEMORY_GIB = 20.0
-DEFAULT_HF_ENDPOINT = "https://hf-mirror.com"
-DEFAULT_HF_HOME = "/root/autodl-tmp/huggingface"
-DEFAULT_GITHUB_REPOSITORY = "chenkx612/local-roleplay-llm"
-CHINA_TIMEZONE = ZoneInfo("Asia/Shanghai")
-
-EXPECTED_TRAINING_PRECISION = {
-    "torch_dtype": "float32",
-    "bnb_4bit_compute_dtype": "float32",
-    "lora_dtype": "float32",
-    "fp16": False,
-    "bf16": False,
-}
-
-PINNED_PACKAGES = {
-    "ms-swift": "4.4.1",
-    "datasets": "4.8.4",
-    "transformers": "5.12.1",
-    "peft": "0.19.1",
-    "bitsandbytes": "0.49.2",
-    "qwen-vl-utils": "0.0.14",
-}
-
-DISABLED_ACCELERATION_PACKAGES = (
-    "flash-linear-attention",
-    "causal-conv1d",
-)
 
 EXPECTED_INPUTS = {
     "data/runs/morgana-v2/sft_train.jsonl": {
@@ -102,12 +104,6 @@ EXPECTED_FILE_HASHES = {
     ),
 }
 
-ADAPTER_FILES = (
-    "adapter_model.safetensors",
-    "adapter_config.json",
-    "additional_config.json",
-)
-
 EXPECTED_ARCHIVE_FILES = frozenset(
     {
         "run_summary.json",
@@ -127,148 +123,48 @@ class Stage2SFTError(RuntimeError):
     """Raised when the frozen Stage 2 execution contract is violated."""
 
 
+RELEASE_SPEC = ReleaseSpec(
+    tag_prefix="morgana-v2-stage2-sft",
+    cli_name="roleplay-stage2-sft",
+    title="morgana-v2 Stage 2 SFT {run_id}",
+    notes="Stage 2 SFT 精简归档；人工复核在下载到本地后完成。",
+    expected_files=EXPECTED_ARCHIVE_FILES,
+    contract_label="",
+    default_repository=DEFAULT_GITHUB_REPOSITORY,
+)
+
+
 def configure_huggingface_environment(
     environment: MutableMapping[str, str] | None = None,
 ) -> dict[str, str]:
-    """Set AutoDL-friendly Hugging Face defaults without overriding the user."""
-    target = os.environ if environment is None else environment
-    target.setdefault("HF_ENDPOINT", DEFAULT_HF_ENDPOINT)
-    target.setdefault("HF_HOME", DEFAULT_HF_HOME)
-    target.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-    target.setdefault("TQDM_DISABLE", "1")
-    return {
-        "endpoint": target["HF_ENDPOINT"],
-        "cache_home": target["HF_HOME"],
-    }
+    return _configure_huggingface_environment(environment)
 
 
 def repository_root() -> Path:
-    """Return the repository root for an editable or source checkout."""
-    return Path(__file__).resolve().parents[2]
-
-
-def sha256_file(path: Path) -> str:
-    """Return the SHA-256 digest of a file."""
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return _repository_root()
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Read a JSONL file and require every nonblank row to be an object."""
-    rows: list[dict[str, Any]] = []
-    for line_number, line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), 1
-    ):
-        if not line.strip():
-            continue
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise Stage2SFTError(f"{path}:{line_number} 不是有效 JSON") from exc
-        if not isinstance(value, dict):
-            raise Stage2SFTError(f"{path}:{line_number} 不是对象")
-        rows.append(value)
-    return rows
-
-
-def write_json_atomic(path: Path, value: dict[str, Any]) -> None:
-    """Atomically write a UTF-8 JSON object in the destination directory."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
     try:
-        temporary.write_text(
-            json.dumps(value, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def write_jsonl_exclusive(path: Path, rows: list[dict[str, Any]]) -> None:
-    """Write JSONL without replacing an existing artifact."""
-    with path.open("x", encoding="utf-8") as output_file:
-        for row in rows:
-            output_file.write(json.dumps(row, ensure_ascii=False) + "\n")
-
-
-def normalized_package_version(version: str) -> str:
-    """Strip a local wheel suffix such as ``+cu128``."""
-    return version.split("+", 1)[0]
+        return _read_jsonl(path)
+    except ValueError as exc:
+        raise Stage2SFTError(str(exc)) from exc
 
 
 def validate_environment_snapshot(snapshot: dict[str, Any]) -> None:
-    """Validate a dependency-free snapshot of the AutoDL runtime."""
-    checks = {
-        "Linux": snapshot.get("platform") == "Linux",
-        "Python 3.12": tuple(snapshot.get("python_version", ())) == (3, 12),
-        "PyTorch 2.8.0": (
-            normalized_package_version(str(snapshot.get("pytorch", "")))
-            == "2.8.0"
-        ),
-        "CUDA 12.8": snapshot.get("cuda") == "12.8",
-        "CUDA available": snapshot.get("cuda_available") is True,
-        "one GPU": snapshot.get("gpu_count") == 1,
-        f"GPU memory >= {MIN_GPU_MEMORY_GIB:.0f} GiB": (
-            isinstance(snapshot.get("gpu_memory_gib"), (int, float))
-            and snapshot["gpu_memory_gib"] >= MIN_GPU_MEMORY_GIB
-        ),
-        "CXX11 ABI": snapshot.get("cxx11_abi") is True,
-    }
-    failed = [name for name, passed in checks.items() if not passed]
-    if failed:
-        raise Stage2SFTError("AutoDL 环境不满足要求: " + ", ".join(failed))
+    _validate_environment_snapshot(
+        snapshot,
+        error_type=Stage2SFTError,
+        min_gpu_memory_gib=MIN_GPU_MEMORY_GIB,
+    )
 
 
 def capture_environment() -> tuple[dict[str, Any], Any]:
-    """Import torch lazily, capture runtime details, and validate them."""
-    try:
-        import torch
-    except ImportError as exc:
-        raise Stage2SFTError(
-            "缺少 PyTorch；请选择 docs/AUTODL.md 指定的 PyTorch 2.8.0 基础镜像"
-        ) from exc
-
-    cuda_available = torch.cuda.is_available()
-    gpu_count = torch.cuda.device_count() if cuda_available else 0
-    gpu_name = torch.cuda.get_device_name(0) if gpu_count else None
-    gpu_memory_gib = (
-        torch.cuda.get_device_properties(0).total_memory / 2**30
-        if gpu_count
-        else 0.0
+    return _capture_environment(
+        error_type=Stage2SFTError,
+        run_command=subprocess.run,
+        min_gpu_memory_gib=MIN_GPU_MEMORY_GIB,
     )
-    try:
-        nvidia_smi_query = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total,driver_version",
-                "--format=csv,noheader",
-            ],
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise Stage2SFTError("无法读取 nvidia-smi") from exc
-
-    snapshot = {
-        "platform": platform.system(),
-        "python_version": list(sys.version_info[:2]),
-        "python": platform.python_version(),
-        "pytorch": torch.__version__,
-        "cuda": torch.version.cuda,
-        "cuda_available": cuda_available,
-        "gpu_count": gpu_count,
-        "gpu": gpu_name,
-        "gpu_memory_gib": round(gpu_memory_gib, 2),
-        "cxx11_abi": bool(torch._C._GLIBCXX_USE_CXX11_ABI),
-        "nvidia_smi_query": nvidia_smi_query,
-    }
-    validate_environment_snapshot(snapshot)
-    return snapshot, torch
 
 
 def _format_environment_status(snapshot: dict[str, Any]) -> str:
@@ -283,94 +179,32 @@ def validate_pinned_packages(
     required_packages: Mapping[str, str] | None = None,
     disabled_packages: Sequence[str] | None = None,
 ) -> dict[str, str]:
-    """Require one stage's dependencies to match its frozen versions."""
-    required = PINNED_PACKAGES if required_packages is None else required_packages
-    disabled_names = (
-        DISABLED_ACCELERATION_PACKAGES
-        if disabled_packages is None
-        else disabled_packages
+    return _validate_pinned_packages(
+        PINNED_PACKAGES if required_packages is None else required_packages,
+        (
+            DISABLED_ACCELERATION_PACKAGES
+            if disabled_packages is None
+            else disabled_packages
+        ),
+        error_type=Stage2SFTError,
+        version_lookup=importlib.metadata.version,
     )
-    disabled = {}
-    for name in disabled_names:
-        try:
-            disabled[name] = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            pass
-    if disabled:
-        packages = " ".join(disabled_names)
-        raise Stage2SFTError(
-            f"检测到禁用的可选加速依赖: {disabled}；"
-            f"请运行 python -m pip uninstall -y {packages}"
-        )
-
-    installed: dict[str, str] = {}
-    missing: list[str] = []
-    for name in required:
-        try:
-            installed[name] = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            missing.append(name)
-    if missing:
-        raise Stage2SFTError("缺少固定依赖: " + ", ".join(missing))
-    mismatches = {
-        name: version
-        for name, version in installed.items()
-        if normalized_package_version(version) != required[name]
-    }
-    if mismatches:
-        raise Stage2SFTError(f"固定依赖版本不匹配: {mismatches}")
-    return installed
 
 
 def ensure_clean_tracked_status(status: str) -> None:
-    """Reject tracked changes while allowing ignored and untracked files."""
-    if status.strip():
-        raise Stage2SFTError("仓库包含 tracked 未提交修改，拒绝开始训练")
+    _ensure_clean_tracked_status(status, error_type=Stage2SFTError)
 
 
 def git_context(repo_dir: Path) -> dict[str, str]:
-    """Return the exact clean Git commit and branch used by a run."""
-    try:
-        status = subprocess.run(
-            ["git", "status", "--short", "--untracked-files=no"],
-            cwd=repo_dir,
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout
-        ensure_clean_tracked_status(status)
-        commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_dir,
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout.strip()
-        branch = subprocess.run(
-            ["git", "branch", "--show-current"],
-            cwd=repo_dir,
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise Stage2SFTError("无法读取 Git checkout") from exc
-    return {"commit": commit, "branch": branch or "detached"}
+    return _git_context(
+        repo_dir,
+        error_type=Stage2SFTError,
+        run_command=subprocess.run,
+    )
 
 
 def create_exclusive_directory(path: Path) -> Path:
-    """Create a new run directory and never reuse existing output."""
-    try:
-        path.mkdir(parents=True, exist_ok=False)
-    except FileExistsError as exc:
-        raise Stage2SFTError(f"运行目录已存在: {path}") from exc
-    return path
-
-
-def generate_run_id(created_at: datetime | None = None) -> str:
-    """Return a readable China Standard Time run identifier, precise to minutes."""
-    timestamp = created_at or datetime.now(timezone.utc)
-    return timestamp.astimezone(CHINA_TIMEZONE).strftime("%Y%m%d-%H%M")
+    return _create_exclusive_directory(path, error_type=Stage2SFTError)
 
 
 def validate_file_manifest(
@@ -484,53 +318,11 @@ def validate_training_config(
 
 
 def validate_effective_training_args(output_dir: Path) -> dict[str, Any]:
-    """Require ms-swift's resolved arguments to remain pure FP32."""
-    args_path = output_dir / "args.json"
-    if not args_path.is_file():
-        raise Stage2SFTError(f"训练输出缺少 args.json: {args_path}")
-    try:
-        args = json.loads(args_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise Stage2SFTError(f"训练 args.json 无效: {args_path}") from exc
-    if not isinstance(args, dict):
-        raise Stage2SFTError(f"训练 args.json 不是对象: {args_path}")
-
-    effective = {
-        name: args.get(name) for name in EXPECTED_TRAINING_PRECISION
-    }
-    mismatches = [
-        f"{name}={effective[name]!r} (预期 {value!r})"
-        for name, value in EXPECTED_TRAINING_PRECISION.items()
-        if effective[name] != value
-    ]
-    if mismatches:
-        raise Stage2SFTError(
-            "ms-swift 实际训练精度不正确: " + ", ".join(mismatches)
-        )
-    return effective
-
-
-def training_progress(line: str) -> dict[str, str] | None:
-    """Extract the few training metrics useful for a concise status update."""
-    fields: dict[str, str] = {}
-    for name in (
-        "loss",
-        "grad_norm",
-        "global_step/max_steps",
-        "remaining_time",
-    ):
-        pattern = rf"['\"]{re.escape(name)}['\"]:\s*['\"]([^'\"]+)"
-        match = re.search(pattern, line)
-        if match:
-            fields[name] = match.group(1)
-    if set(fields) != {
-        "loss",
-        "grad_norm",
-        "global_step/max_steps",
-        "remaining_time",
-    }:
-        return None
-    return fields
+    return _validate_effective_training_args(
+        output_dir,
+        error_type=Stage2SFTError,
+        expected_precision=EXPECTED_TRAINING_PRECISION,
+    )
 
 
 def run_logged(
@@ -540,87 +332,20 @@ def run_logged(
     environment: dict[str, str],
     expected_steps: int,
 ) -> float:
-    """Run a command, preserve all output, and print concise progress."""
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    started = time.monotonic()
-    progress_interval = max(1, math.ceil(expected_steps / 5))
-    last_reported_step = 0
-    with log_path.open("w", encoding="utf-8") as log_file:
-        log_file.write("COMMAND: " + subprocess.list2cmdline(command) + "\n")
-        log_file.flush()
-        process = subprocess.Popen(
-            command,
-            cwd=repo_dir,
-            env=environment,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        if process.stdout is None:
-            raise Stage2SFTError("训练子进程没有 stdout")
-        for line in process.stdout:
-            log_file.write(line)
-            progress = training_progress(line)
-            if progress is None:
-                continue
-            step_text = progress["global_step/max_steps"]
-            step, total = (int(value) for value in step_text.split("/", 1))
-            should_report = (
-                step == 1
-                or step == total
-                or step - last_reported_step >= progress_interval
-            )
-            if should_report:
-                print(
-                    "  训练进度 "
-                    f"{step}/{total} | loss {progress['loss']} | "
-                    f"grad {progress['grad_norm']} | "
-                    f"预计剩余 {progress['remaining_time']}"
-                )
-                last_reported_step = step
-        return_code = process.wait()
-    if return_code != 0:
-        raise Stage2SFTError(
-            f"训练子进程退出码 {return_code}；完整日志: {log_path}"
-        )
-    return time.monotonic() - started
+    return _run_logged(
+        command,
+        log_path,
+        repo_dir,
+        environment,
+        expected_steps,
+        error_type=Stage2SFTError,
+        progress_parser=training_progress,
+        popen_factory=subprocess.Popen,
+    )
 
 
 def find_final_adapter(output_dir: Path) -> Path:
-    """Find and validate the newest final/checkpoint PEFT adapter."""
-    from peft import PeftConfig
-
-    candidates: list[tuple[int, int, Path]] = []
-    for config_path in output_dir.rglob("adapter_config.json"):
-        directory = config_path.parent
-        if (directory / "adapter_model.safetensors").is_file():
-            match = re.search(r"checkpoint-(\d+)$", directory.name)
-            step = int(match.group(1)) if match else -1
-            candidates.append((step, config_path.stat().st_mtime_ns, directory))
-    if not candidates:
-        raise Stage2SFTError(f"没有在 {output_dir} 找到 adapter")
-    adapter_dir = max(candidates)[2]
-    PeftConfig.from_pretrained(adapter_dir)
-    return adapter_dir
-
-
-def read_metric(output_dir: Path, metric: str) -> list[float]:
-    """Read the longest metric series emitted by ms-swift."""
-    candidates: list[list[float]] = []
-    for path in output_dir.rglob("*.jsonl"):
-        values: list[float] = []
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            value = row.get(metric) if isinstance(row, dict) else None
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                values.append(float(value))
-        if values:
-            candidates.append(values)
-    return max(candidates, key=len, default=[])
+    return _find_final_adapter(output_dir, error_type=Stage2SFTError)
 
 
 def inspect_adapter_update(adapter_dir: Path) -> dict[str, Any]:
@@ -721,103 +446,27 @@ def prune_run_artifacts(run_dir: Path) -> list[str]:
     return removed
 
 
-def create_release_bundle(run_dir: Path, output_dir: Path) -> tuple[Path, Path]:
-    """Create one GitHub Release bundle without adding model files to Git."""
-    run_dir = run_dir.resolve()
-    output_dir = output_dir.resolve()
-    validate_archive_contract(run_dir)
-
-    summary_path = run_dir / "run_summary.json"
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    run_id = summary.get("run", {}).get("id")
-    if not isinstance(run_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
-    ):
-        raise Stage2SFTError("run_summary.json 缺少可用于发布包名称的 run.id")
-
-    try:
-        output_dir.relative_to(run_dir)
-    except ValueError:
-        pass
-    else:
-        raise Stage2SFTError("发布包目录不能位于 run 目录内")
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"morgana-v2-stage2-sft-{run_id}"
-    bundle_path = output_dir / f"{stem}.tar.gz"
-    manifest_path = output_dir / f"{stem}.manifest.json"
-    existing = [path for path in (bundle_path, manifest_path) if path.exists()]
-    if existing:
-        raise Stage2SFTError(
-            "发布产物已存在，拒绝覆盖: " + ", ".join(map(str, existing))
-        )
-
-    temporary_bundle = output_dir / f".{bundle_path.name}.{uuid4().hex}.tmp"
-    try:
-        with tarfile.open(temporary_bundle, "w:gz") as archive:
-            for relative_name in sorted(EXPECTED_ARCHIVE_FILES):
-                archive.add(
-                    run_dir / relative_name,
-                    arcname=f"{run_id}/{relative_name}",
-                    recursive=False,
-                )
-        temporary_bundle.replace(bundle_path)
-        contents = dict(
-            _archive_metadata(run_dir / name, run_dir)
-            for name in sorted(EXPECTED_ARCHIVE_FILES)
-        )
-        manifest = {
-            "schema_version": 1,
-            "run_id": run_id,
-            "run_status": summary.get("status"),
-            "source_commit": summary.get("run", {}).get("commit"),
-            "github_release_tag": stem,
-            "bundle": {
-                "file": bundle_path.name,
-                "bytes": bundle_path.stat().st_size,
-                "sha256": sha256_file(bundle_path),
-            },
-            "contents": contents,
-        }
-        write_json_atomic(manifest_path, manifest)
-    except BaseException:
-        temporary_bundle.unlink(missing_ok=True)
-        bundle_path.unlink(missing_ok=True)
-        manifest_path.unlink(missing_ok=True)
-        raise
-    return bundle_path, manifest_path
+def _release_metadata(path: Path, run_dir: Path) -> dict[str, Any]:
+    return {
+        "bytes": path.stat().st_size,
+        "sha256": sha256_file(path),
+    }
 
 
-def _reuse_release_bundle(
+def create_release_bundle(
     run_dir: Path, output_dir: Path
-) -> tuple[Path, Path] | None:
-    """Return an existing bundle only when it still matches the run exactly."""
-    summary = json.loads(
-        (run_dir / "run_summary.json").read_text(encoding="utf-8")
+) -> tuple[Path, Path]:
+    """Create one exact release bundle without overwriting prior artifacts."""
+    bundle, manifest, _ = _create_release_bundle(
+        run_dir,
+        output_dir,
+        spec=RELEASE_SPEC,
+        error_type=Stage2SFTError,
+        validate_archive=validate_archive_contract,
+        metadata_builder=_release_metadata,
+        reuse_existing=False,
     )
-    run_id = summary.get("run", {}).get("id")
-    if not isinstance(run_id, str):
-        return None
-    stem = f"morgana-v2-stage2-sft-{run_id}"
-    bundle_path = output_dir / f"{stem}.tar.gz"
-    manifest_path = output_dir / f"{stem}.manifest.json"
-    if not bundle_path.exists() and not manifest_path.exists():
-        return None
-    if not bundle_path.is_file() or not manifest_path.is_file():
-        raise Stage2SFTError("发布包或清单不完整，拒绝复用")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    expected_contents = dict(
-        _archive_metadata(run_dir / name, run_dir)
-        for name in sorted(EXPECTED_ARCHIVE_FILES)
-    )
-    if (
-        manifest.get("run_id") != run_id
-        or manifest.get("contents") != expected_contents
-        or manifest.get("bundle", {}).get("sha256")
-        != sha256_file(bundle_path)
-    ):
-        raise Stage2SFTError("现有发布包与 run 目录不一致，拒绝复用")
-    return bundle_path, manifest_path
+    return bundle, manifest
 
 
 def publish_run(
@@ -826,112 +475,37 @@ def publish_run(
     repository: str = DEFAULT_GITHUB_REPOSITORY,
 ) -> tuple[Path, Path, str]:
     """Prune, bundle, and upload one run before local manual review."""
-    run_dir = run_dir.resolve()
-    output_dir = output_dir.resolve()
-    prune_run_artifacts(run_dir)
-    existing = _reuse_release_bundle(run_dir, output_dir)
-    if existing is None:
-        bundle_path, manifest_path = create_release_bundle(run_dir, output_dir)
-    else:
-        bundle_path, manifest_path = existing
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    tag = manifest["github_release_tag"]
-    command = [
-        "gh",
-        "release",
-        "create",
-        tag,
-        str(bundle_path),
-        str(manifest_path),
-        "--repo",
+    prune_run_artifacts(run_dir.resolve())
+    return _publish_release(
+        run_dir,
+        output_dir,
         repository,
-        "--title",
-        f"morgana-v2 Stage 2 SFT {manifest['run_id']}",
-        "--notes",
-        "Stage 2 SFT 精简归档；人工复核在下载到本地后完成。",
-    ]
-    source_commit = manifest.get("source_commit")
-    if isinstance(source_commit, str) and source_commit:
-        command.extend(["--target", source_commit])
-    try:
-        subprocess.run(command, check=True)
-    except FileNotFoundError as exc:
-        raise Stage2SFTError("未安装 GitHub CLI：gh") from exc
-    except subprocess.CalledProcessError as exc:
-        raise Stage2SFTError(
-            "GitHub Release 上传失败；本地发布包已保留，可修复后重试"
-        ) from exc
-    return bundle_path, manifest_path, tag
+        spec=RELEASE_SPEC,
+        error_type=Stage2SFTError,
+        validate_archive=validate_archive_contract,
+        run_command=subprocess.run,
+        metadata_builder=_release_metadata,
+    )
 
 
 def format_download_command(
     tag: str, repository: str = DEFAULT_GITHUB_REPOSITORY
 ) -> str:
     """Format the local command for downloading a published release."""
-    command = ["roleplay-stage2-sft", "download", "--tag", tag]
-    if repository != DEFAULT_GITHUB_REPOSITORY:
-        command.extend(["--repo", repository])
-    return shlex.join(command)
+    return _format_download_command(tag, repository, spec=RELEASE_SPEC)
 
 
 def extract_release_bundle(
     bundle_path: Path, manifest_path: Path, output_root: Path
 ) -> Path:
     """Verify and atomically extract one downloaded release bundle."""
-    bundle_path = bundle_path.resolve()
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("bundle", {}).get("sha256") != sha256_file(bundle_path):
-        raise Stage2SFTError("下载包 SHA-256 与 manifest 不匹配")
-    run_id = manifest.get("run_id")
-    if not isinstance(run_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
-    ):
-        raise Stage2SFTError("manifest 缺少有效 run_id")
-    if set(manifest.get("contents", {})) != EXPECTED_ARCHIVE_FILES:
-        raise Stage2SFTError("manifest 文件清单不满足归档契约")
-    expected_names = {
-        f"{run_id}/{name}" for name in manifest.get("contents", {})
-    }
-    output_root = output_root.resolve()
-    destination = output_root / run_id
-    if destination.exists():
-        raise Stage2SFTError(f"本地 run 目录已存在，拒绝覆盖: {destination}")
-    output_root.mkdir(parents=True, exist_ok=True)
-    staging_root = output_root / f".download-{uuid4().hex}"
-    staging_root.mkdir()
-    try:
-        with tarfile.open(bundle_path, "r:gz") as archive:
-            members = archive.getmembers()
-            actual_names = {member.name for member in members}
-            if actual_names != expected_names or not all(
-                member.isfile() for member in members
-            ):
-                raise Stage2SFTError("发布包内容与 manifest 不一致")
-            for member in members:
-                target = (staging_root / member.name).resolve()
-                try:
-                    target.relative_to(staging_root)
-                except ValueError as exc:
-                    raise Stage2SFTError("发布包包含不安全路径") from exc
-                target.parent.mkdir(parents=True, exist_ok=True)
-                source = archive.extractfile(member)
-                if source is None:
-                    raise Stage2SFTError(f"无法读取发布包文件: {member.name}")
-                with source, target.open("xb") as output_file:
-                    shutil.copyfileobj(source, output_file)
-        staged_run = staging_root / run_id
-        for relative_name, metadata in manifest["contents"].items():
-            path = staged_run / relative_name
-            if (
-                not path.is_file()
-                or path.stat().st_size != metadata["bytes"]
-                or sha256_file(path) != metadata["sha256"]
-            ):
-                raise Stage2SFTError(f"解包文件校验失败: {relative_name}")
-        staged_run.replace(destination)
-    finally:
-        shutil.rmtree(staging_root, ignore_errors=True)
-    return destination
+    return _extract_release_bundle(
+        bundle_path,
+        manifest_path,
+        output_root,
+        spec=RELEASE_SPEC,
+        error_type=Stage2SFTError,
+    )
 
 
 def download_release(
@@ -940,31 +514,14 @@ def download_release(
     repository: str = DEFAULT_GITHUB_REPOSITORY,
 ) -> Path:
     """Download, verify, and extract one GitHub Release locally."""
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", tag):
-        raise Stage2SFTError("release tag 格式无效")
-    with tempfile.TemporaryDirectory() as temporary:
-        download_dir = Path(temporary)
-        command = [
-            "gh",
-            "release",
-            "download",
-            tag,
-            "--repo",
-            repository,
-            "--dir",
-            str(download_dir),
-        ]
-        try:
-            subprocess.run(command, check=True)
-        except FileNotFoundError as exc:
-            raise Stage2SFTError("未安装 GitHub CLI：gh") from exc
-        except subprocess.CalledProcessError as exc:
-            raise Stage2SFTError(f"GitHub Release 下载失败: {tag}") from exc
-        bundle_path = download_dir / f"{tag}.tar.gz"
-        manifest_path = download_dir / f"{tag}.manifest.json"
-        if not bundle_path.is_file() or not manifest_path.is_file():
-            raise Stage2SFTError("Release 缺少发布包或 manifest")
-        return extract_release_bundle(bundle_path, manifest_path, output_root)
+    return _download_release(
+        tag,
+        output_root,
+        repository,
+        spec=RELEASE_SPEC,
+        error_type=Stage2SFTError,
+        run_command=subprocess.run,
+    )
 
 
 def _records_from_responses(

@@ -8,20 +8,52 @@ import json
 import math
 import os
 import random
-import re
-import shlex
 import shutil
 import subprocess
 import sys
-import tarfile
-import tempfile
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
-from roleplay.post_grpo_dpo_data import _reward_v2
+from roleplay.core.adapters import inspect_adapter_change as _inspect_adapter_change
+from roleplay.core.artifacts import (
+    read_jsonl as _read_jsonl,
+    sha256_file,
+    write_json_atomic,
+    write_jsonl_exclusive,
+)
+from roleplay.core.release import (
+    ReleaseSpec,
+    create_release_bundle as _create_release_bundle,
+    download_release as _download_release,
+    extract_release_bundle as _extract_release_bundle,
+    format_download_command as _format_download_command,
+    publish_release as _publish_release,
+)
+from roleplay.core.runtime import (
+    ADAPTER_FILES,
+    DEFAULT_GITHUB_REPOSITORY,
+    PINNED_PACKAGES,
+    capture_environment as _capture_environment,
+    configure_huggingface_environment,
+    create_exclusive_directory as _create_exclusive_directory,
+    find_final_adapter as _find_final_adapter,
+    generate_run_id,
+    git_context as _git_context,
+    read_metric,
+    run_logged as _run_logged,
+    validate_effective_training_args as _validate_effective_training_args,
+    validate_pinned_packages as _validate_pinned_packages,
+)
+from roleplay.experiments.morgana_v2 import (
+    MODEL_ID,
+    MODEL_REVISION,
+    SAMPLING_CONFIG,
+    SYSTEM_PROMPT_RELATIVE_PATH,
+    SYSTEM_PROMPT_SHA256,
+)
+from roleplay.post_grpo_dpo_data import reward_candidate as _reward_v2
 from roleplay.sft_eval import (
     EVALUATION_SEEDS,
     build_manual_review,
@@ -30,31 +62,8 @@ from roleplay.sft_eval import (
     evaluate_manual_review,
     normalize_empty_think_wrapper,
 )
-from roleplay.stage2_sft import (
-    ADAPTER_FILES,
-    DEFAULT_GITHUB_REPOSITORY,
-    PINNED_PACKAGES,
-    Stage2SFTError,
-    capture_environment,
-    configure_huggingface_environment,
-    create_exclusive_directory,
-    find_final_adapter,
-    generate_run_id,
-    git_context,
-    read_jsonl,
-    read_metric,
-    run_logged,
-    sha256_file,
-    validate_effective_training_args,
-    validate_pinned_packages,
-    write_json_atomic,
-    write_jsonl_exclusive,
-)
-from roleplay.stage3_dpo import Stage3DPOError, inspect_adapter_change
 
 
-MODEL_ID = "Qwen/Qwen3.5-2B"
-MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_post_grpo_dpo.yaml")
 ORIGINAL_TRAIN_RELATIVE_PATH = Path(
     "data/runs/morgana-v2/post_grpo_dpo_train.jsonl"
@@ -70,9 +79,6 @@ EXPANSION_TRAIN_AUDIT_RELATIVE_PATH = Path(
 )
 HOLDOUT_RELATIVE_PATH = Path(
     "data/runs/morgana-v2/post_grpo_dpo_holdout.jsonl"
-)
-SYSTEM_PROMPT_RELATIVE_PATH = Path(
-    "data/runs/morgana-v2/system_prompt.txt"
 )
 GRPO_ADAPTER_RELATIVE_PATH = Path(
     "output/morgana-v2/stage4-grpo/20260812-2144/adapter"
@@ -94,9 +100,6 @@ EXPANSION_TRAIN_AUDIT_SHA256 = (
     "33c7ca2ba96897c5163dfa626eead680d221fe0e8a7c04419d5fa1249fe9c192"
 )
 HOLDOUT_SHA256 = "59e043347e1b1436f75ed357e5edd10adef1ad2e749003dea5e195b3ec2bedde"
-SYSTEM_PROMPT_SHA256 = (
-    "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
-)
 GRPO_ADAPTER_HASHES = {
     "adapter_model.safetensors": (
         "89ca4fa213ea16eeee002b088ea46b3012b6311b02f09b2b27b0937ab6dcd30f"
@@ -117,12 +120,6 @@ TARGET_ISSUES = (
     "perspective_shift",
     "emotion_response",
 )
-SAMPLING_CONFIG = {
-    "temperature": 0.6,
-    "top_p": 0.8,
-    "top_k": 20,
-    "repetition_penalty": 1.45,
-}
 EXPECTED_CONFIG = {
     "rlhf_type": "dpo",
     "model": MODEL_ID,
@@ -180,6 +177,93 @@ EXPECTED_ARCHIVE_FILES = frozenset(
 
 class PostGRPODPOError(RuntimeError):
     """Raised when the frozen post-GRPO DPO contract is violated."""
+
+
+RELEASE_SPEC = ReleaseSpec(
+    tag_prefix="morgana-v2-post-grpo-dpo",
+    cli_name="roleplay-post-grpo-dpo",
+    title="morgana-v2 post-GRPO DPO {run_id}",
+    notes="post-GRPO DPO 训练产物、holdout 复核材料和 adapter。",
+    expected_files=EXPECTED_ARCHIVE_FILES,
+    contract_label="",
+    default_repository=DEFAULT_GITHUB_REPOSITORY,
+    manifest_extra={"stage": "post_grpo_dpo"},
+)
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    try:
+        return _read_jsonl(path)
+    except ValueError as exc:
+        raise PostGRPODPOError(str(exc)) from exc
+
+
+def capture_environment() -> tuple[dict[str, Any], Any]:
+    return _capture_environment(
+        error_type=PostGRPODPOError,
+        run_command=subprocess.run,
+    )
+
+
+def create_exclusive_directory(path: Path) -> Path:
+    return _create_exclusive_directory(path, error_type=PostGRPODPOError)
+
+
+def find_final_adapter(output_dir: Path) -> Path:
+    return _find_final_adapter(output_dir, error_type=PostGRPODPOError)
+
+
+def git_context(repo_dir: Path) -> dict[str, str]:
+    return _git_context(
+        repo_dir,
+        error_type=PostGRPODPOError,
+        run_command=subprocess.run,
+    )
+
+
+def run_logged(
+    command: list[str],
+    log_path: Path,
+    repo_dir: Path,
+    environment: dict[str, str],
+    expected_steps: int,
+) -> float:
+    return _run_logged(
+        command,
+        log_path,
+        repo_dir,
+        environment,
+        expected_steps,
+        error_type=PostGRPODPOError,
+    )
+
+
+def validate_effective_training_args(output_dir: Path) -> dict[str, Any]:
+    return _validate_effective_training_args(
+        output_dir,
+        error_type=PostGRPODPOError,
+    )
+
+
+def validate_pinned_packages(
+    required_packages: Mapping[str, str] = PINNED_PACKAGES,
+    disabled_packages: tuple[str, ...] = ("flash-linear-attention", "causal-conv1d"),
+) -> dict[str, str]:
+    return _validate_pinned_packages(
+        required_packages,
+        disabled_packages,
+        error_type=PostGRPODPOError,
+    )
+
+
+def inspect_adapter_change(
+    source_dir: Path, trained_dir: Path
+) -> dict[str, Any]:
+    return _inspect_adapter_change(
+        source_dir,
+        trained_dir,
+        error_type=PostGRPODPOError,
+    )
 
 
 def repository_root() -> Path:
@@ -852,83 +936,16 @@ def run_post_grpo_dpo(output_root: Path | None = None) -> Path:
         raise
 
 
-def _bundle_paths(output_dir: Path, run_id: str) -> tuple[Path, Path, str]:
-    tag = f"morgana-v2-post-grpo-dpo-{run_id}"
-    return (
-        output_dir / f"{tag}.tar.gz",
-        output_dir / f"{tag}.manifest.json",
-        tag,
-    )
-
-
 def create_release_bundle(
     run_dir: Path, output_dir: Path
 ) -> tuple[Path, Path, str]:
-    run_dir = run_dir.resolve()
-    output_dir = output_dir.resolve()
-    validate_archive_contract(run_dir)
-    summary = json.loads(
-        (run_dir / "run_summary.json").read_text(encoding="utf-8")
+    return _create_release_bundle(
+        run_dir,
+        output_dir,
+        spec=RELEASE_SPEC,
+        error_type=PostGRPODPOError,
+        validate_archive=validate_archive_contract,
     )
-    run_id = summary.get("run", {}).get("id")
-    if not isinstance(run_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
-    ):
-        raise PostGRPODPOError("run_summary.json 缺少有效 run.id")
-    try:
-        output_dir.relative_to(run_dir)
-    except ValueError:
-        pass
-    else:
-        raise PostGRPODPOError("发布包目录不能位于 run 目录内")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    bundle, manifest_path, tag = _bundle_paths(output_dir, run_id)
-    contents = {
-        name: _artifact(run_dir / name, run_dir)
-        for name in sorted(EXPECTED_ARCHIVE_FILES)
-    }
-    if bundle.exists() or manifest_path.exists():
-        if not bundle.is_file() or not manifest_path.is_file():
-            raise PostGRPODPOError("发布包或 manifest 不完整")
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if (
-            manifest.get("contents") != contents
-            or manifest.get("bundle", {}).get("sha256")
-            != sha256_file(bundle)
-        ):
-            raise PostGRPODPOError("现有发布包与 run 不一致")
-        return bundle, manifest_path, tag
-    temporary = output_dir / f".{bundle.name}.{uuid4().hex}.tmp"
-    try:
-        with tarfile.open(temporary, "w:gz") as archive:
-            for name in sorted(EXPECTED_ARCHIVE_FILES):
-                archive.add(
-                    run_dir / name,
-                    arcname=f"{run_id}/{name}",
-                    recursive=False,
-                )
-        temporary.replace(bundle)
-        manifest = {
-            "schema_version": 1,
-            "stage": "post_grpo_dpo",
-            "run_id": run_id,
-            "run_status": summary["status"],
-            "source_commit": summary.get("run", {}).get("commit"),
-            "github_release_tag": tag,
-            "bundle": {
-                "file": bundle.name,
-                "bytes": bundle.stat().st_size,
-                "sha256": sha256_file(bundle),
-            },
-            "contents": contents,
-        }
-        write_json_atomic(manifest_path, manifest)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        bundle.unlink(missing_ok=True)
-        manifest_path.unlink(missing_ok=True)
-        raise
-    return bundle, manifest_path, tag
 
 
 def publish_run(
@@ -936,106 +953,33 @@ def publish_run(
     output_dir: Path,
     repository: str = DEFAULT_GITHUB_REPOSITORY,
 ) -> tuple[Path, Path, str]:
-    bundle, manifest_path, tag = create_release_bundle(run_dir, output_dir)
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    command = [
-        "gh",
-        "release",
-        "create",
-        tag,
-        str(bundle),
-        str(manifest_path),
-        "--repo",
+    return _publish_release(
+        run_dir,
+        output_dir,
         repository,
-        "--title",
-        f"morgana-v2 post-GRPO DPO {manifest['run_id']}",
-        "--notes",
-        "post-GRPO DPO 训练产物、holdout 复核材料和 adapter。",
-    ]
-    source_commit = manifest.get("source_commit")
-    if isinstance(source_commit, str) and source_commit:
-        command.extend(["--target", source_commit])
-    try:
-        subprocess.run(command, check=True)
-    except FileNotFoundError as exc:
-        raise PostGRPODPOError("未安装 GitHub CLI：gh") from exc
-    except subprocess.CalledProcessError as exc:
-        raise PostGRPODPOError(
-            "GitHub Release 上传失败；本地发布包已保留"
-        ) from exc
-    return bundle, manifest_path, tag
+        spec=RELEASE_SPEC,
+        error_type=PostGRPODPOError,
+        validate_archive=validate_archive_contract,
+        run_command=subprocess.run,
+    )
 
 
 def format_download_command(
     tag: str, repository: str = DEFAULT_GITHUB_REPOSITORY
 ) -> str:
-    command = ["roleplay-post-grpo-dpo", "download", "--tag", tag]
-    if repository != DEFAULT_GITHUB_REPOSITORY:
-        command.extend(["--repo", repository])
-    return shlex.join(command)
+    return _format_download_command(tag, repository, spec=RELEASE_SPEC)
 
 
 def extract_release_bundle(
     bundle: Path, manifest_path: Path, output_root: Path
 ) -> Path:
-    bundle = bundle.resolve()
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("stage") != "post_grpo_dpo":
-        raise PostGRPODPOError("manifest stage 不正确")
-    if manifest.get("bundle", {}).get("sha256") != sha256_file(bundle):
-        raise PostGRPODPOError("下载包 SHA-256 与 manifest 不匹配")
-    run_id = manifest.get("run_id")
-    if not isinstance(run_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
-    ):
-        raise PostGRPODPOError("manifest 缺少有效 run_id")
-    contents = manifest.get("contents")
-    if not isinstance(contents, dict) or set(contents) != EXPECTED_ARCHIVE_FILES:
-        raise PostGRPODPOError("manifest 文件清单不满足归档契约")
-    expected_names = {f"{run_id}/{name}" for name in contents}
-    output_root = output_root.resolve()
-    destination = output_root / run_id
-    if destination.exists():
-        raise PostGRPODPOError(
-            f"本地 run 目录已存在，拒绝覆盖: {destination}"
-        )
-    output_root.mkdir(parents=True, exist_ok=True)
-    staging = output_root / f".download-{uuid4().hex}"
-    staging.mkdir()
-    try:
-        with tarfile.open(bundle, "r:gz") as archive:
-            members = archive.getmembers()
-            if {member.name for member in members} != expected_names or not all(
-                member.isfile() for member in members
-            ):
-                raise PostGRPODPOError("发布包内容与 manifest 不一致")
-            for member in members:
-                target = (staging / member.name).resolve()
-                try:
-                    target.relative_to(staging)
-                except ValueError as exc:
-                    raise PostGRPODPOError("发布包包含不安全路径") from exc
-                target.parent.mkdir(parents=True, exist_ok=True)
-                source = archive.extractfile(member)
-                if source is None:
-                    raise PostGRPODPOError(
-                        f"无法读取发布包文件: {member.name}"
-                    )
-                with source, target.open("xb") as output:
-                    shutil.copyfileobj(source, output)
-        staged_run = staging / run_id
-        for relative, metadata in contents.items():
-            path = staged_run / relative
-            if (
-                not path.is_file()
-                or path.stat().st_size != metadata.get("bytes")
-                or sha256_file(path) != metadata.get("sha256")
-            ):
-                raise PostGRPODPOError(f"解包文件校验失败: {relative}")
-        staged_run.replace(destination)
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
-    return destination
+    return _extract_release_bundle(
+        bundle,
+        manifest_path,
+        output_root,
+        spec=RELEASE_SPEC,
+        error_type=PostGRPODPOError,
+    )
 
 
 def download_release(
@@ -1043,33 +987,14 @@ def download_release(
     output_root: Path,
     repository: str = DEFAULT_GITHUB_REPOSITORY,
 ) -> Path:
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", tag):
-        raise PostGRPODPOError("release tag 格式无效")
-    with tempfile.TemporaryDirectory() as temporary:
-        download_dir = Path(temporary)
-        try:
-            subprocess.run(
-                [
-                    "gh",
-                    "release",
-                    "download",
-                    tag,
-                    "--repo",
-                    repository,
-                    "--dir",
-                    str(download_dir),
-                ],
-                check=True,
-            )
-        except FileNotFoundError as exc:
-            raise PostGRPODPOError("未安装 GitHub CLI：gh") from exc
-        except subprocess.CalledProcessError as exc:
-            raise PostGRPODPOError(f"GitHub Release 下载失败: {tag}") from exc
-        bundle = download_dir / f"{tag}.tar.gz"
-        manifest = download_dir / f"{tag}.manifest.json"
-        if not bundle.is_file() or not manifest.is_file():
-            raise PostGRPODPOError("Release 缺少发布包或 manifest")
-        return extract_release_bundle(bundle, manifest, output_root)
+    return _download_release(
+        tag,
+        output_root,
+        repository,
+        spec=RELEASE_SPEC,
+        error_type=PostGRPODPOError,
+        run_command=subprocess.run,
+    )
 
 
 def _read_json_object(path: Path, label: str) -> dict[str, Any]:
@@ -1186,8 +1111,6 @@ def main(argv: list[str] | None = None) -> int:
         else:
             review_run(args.run_dir)
     except (
-        Stage2SFTError,
-        Stage3DPOError,
         PostGRPODPOError,
         subprocess.CalledProcessError,
     ) as exc:

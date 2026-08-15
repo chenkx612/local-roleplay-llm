@@ -205,7 +205,7 @@ def run_baseline(
     print(f"完成，共 {total} 条，输出: {output_path}")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="批量推理，生成基线或模型输出")
     parser.add_argument(
         "--persona", type=Path, default=ROOT / "data/persona.json", help="角色设定文件"
@@ -230,7 +230,7 @@ def main() -> None:
         "--repetition-context-size", type=int, default=REPETITION_CONTEXT_SIZE
     )
     parser.add_argument("--seed", type=int, help="固定采样 seed；省略则由服务端决定")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     try:
         generation_config = {

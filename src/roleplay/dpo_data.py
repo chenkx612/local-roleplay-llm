@@ -23,8 +23,8 @@ from roleplay.grpo_candidates import (
     TEMPERATURE,
     TOP_K,
     TOP_P,
-    _generate_one,
-    _verify_loaded_adapter,
+    generate_one as _generate_one,
+    verify_loaded_adapter as _verify_loaded_adapter,
     convert_peft_adapter_to_mlx,
 )
 from roleplay.sft_eval import (
@@ -1109,9 +1109,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         if args.command == "prepare":
             prepare_run(
@@ -1129,6 +1129,9 @@ def main() -> None:
             print(f"DPO audit: {audit}")
     except (DPODataError, OSError, ValueError) as exc:
         parser.error(str(exc))
+
+
+validate_candidate_rows = _validate_candidate_rows
 
 
 if __name__ == "__main__":

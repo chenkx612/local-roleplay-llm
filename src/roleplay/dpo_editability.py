@@ -17,7 +17,7 @@ from roleplay.dpo_data import (
     ROOT,
     STYLE_EXAMPLES_PATH,
     SYSTEM_PROMPT_PATH,
-    _validate_candidate_rows,
+    validate_candidate_rows as _validate_candidate_rows,
     is_stable_candidate,
     load_jsonl,
     load_prompts,
@@ -617,8 +617,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = build_parser().parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
     try:
         if args.command == "prepare":
             prepare_experiment(

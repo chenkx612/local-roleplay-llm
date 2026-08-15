@@ -3,63 +3,62 @@
 from __future__ import annotations
 
 import argparse
-import gc
 import json
 import os
-import random
-import re
-import shlex
 import shutil
 import subprocess
 import sys
-import tarfile
-import tempfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Any
-from uuid import uuid4
 
-from roleplay.stage2_sft import (
-    ADAPTER_FILES,
-    DEFAULT_GITHUB_REPOSITORY,
-    PINNED_PACKAGES,
-    Stage2SFTError,
-    capture_environment,
-    configure_huggingface_environment,
-    create_exclusive_directory,
-    find_final_adapter,
-    generate_run_id,
-    git_context,
-    read_jsonl,
-    run_logged,
+from roleplay.core.adapters import inspect_adapter_change as _inspect_adapter_change
+from roleplay.core.artifacts import (
+    read_jsonl as _read_jsonl,
     sha256_file,
-    validate_pinned_packages,
     write_json_atomic,
     write_jsonl_exclusive,
 )
-from roleplay.sft_eval import (
-    EVALUATION_SEEDS,
-    build_manual_review,
-    empty_manual_review_results,
-    evaluate_core_behavior_gate,
-    evaluate_manual_review,
-    normalize_empty_think_wrapper,
+from roleplay.core.release import (
+    ReleaseSpec,
+    create_release_bundle as _create_release_bundle,
+    download_release as _download_release,
+    extract_release_bundle as _extract_release_bundle,
+    format_download_command as _format_download_command,
+    publish_release as _publish_release,
 )
+from roleplay.core.runtime import (
+    ADAPTER_FILES,
+    DEFAULT_GITHUB_REPOSITORY,
+    PINNED_PACKAGES,
+    capture_environment as _capture_environment,
+    configure_huggingface_environment,
+    create_exclusive_directory as _create_exclusive_directory,
+    find_final_adapter as _find_final_adapter,
+    generate_run_id,
+    git_context as _git_context,
+    run_logged as _run_logged,
+    validate_pinned_packages as _validate_pinned_packages,
+)
+from roleplay.evaluation.comparison import generate_adapter_review_artifacts
+from roleplay.experiments.morgana_v2 import (
+    DEV_RELATIVE_PATH,
+    DEV_SHA256,
+    MODEL_ID,
+    MODEL_REVISION,
+    SAMPLING_CONFIG as STAGE3_SAMPLING_CONFIG,
+    SFT_ADAPTER_HASHES,
+    SFT_ADAPTER_RELATIVE_PATH,
+    SYSTEM_PROMPT_RELATIVE_PATH,
+    SYSTEM_PROMPT_SHA256,
+)
+from roleplay.sft_eval import evaluate_manual_review
 
 
-MODEL_ID = "Qwen/Qwen3.5-2B"
-MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 CONFIG_RELATIVE_PATH = Path("configs/morgana_v2_grpo.yaml")
 PROMPTS_RELATIVE_PATH = Path("data/runs/morgana-v2/rl_train.jsonl")
-DEV_RELATIVE_PATH = Path("data/runs/morgana-v2/dev.jsonl")
-SYSTEM_PROMPT_RELATIVE_PATH = Path(
-    "data/runs/morgana-v2/system_prompt.txt"
-)
-SFT_ADAPTER_RELATIVE_PATH = Path(
-    "output/morgana-v2/stage2-sft/final/adapter"
-)
 DEFAULT_OUTPUT_RELATIVE_PATH = Path("output/morgana-v2/stage3-grpo")
 
 STAGE3_PINNED_PACKAGES = {
@@ -70,28 +69,6 @@ STAGE3_PINNED_PACKAGES = {
 STAGE3_DISABLED_ACCELERATION_PACKAGES = ("causal-conv1d",)
 
 PROMPTS_SHA256 = "b36b4f01f232901ab0b5f6011fa64b66f48e02c75b6b0050035e4caf703e7231"
-DEV_SHA256 = "74cf6d05921155cec5c070ca8a611c7a8e6751b00ca0b77a6f4e9085aeeecb22"
-SYSTEM_PROMPT_SHA256 = (
-    "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
-)
-SFT_ADAPTER_HASHES = {
-    "adapter_model.safetensors": (
-        "617e6e00535fa356272d32fb16d8fe8d451a9c3cfd2f766f56af02cdf2f9b78d"
-    ),
-    "adapter_config.json": (
-        "67f3ab10168164cc014c7f9c8720984760b1d94be33fde9abf89fb3004a886dc"
-    ),
-    "additional_config.json": (
-        "2b7ed6cc0ca6c21dc39bf80fd3351f5f87c462df23a237dd6ad20473eb9a33a2"
-    ),
-}
-
-STAGE3_SAMPLING_CONFIG = {
-    "temperature": 0.6,
-    "top_p": 0.8,
-    "top_k": 20,
-    "repetition_penalty": 1.45,
-}
 
 EXPECTED_CONFIG = {
     "rlhf_type": "grpo",
@@ -143,6 +120,106 @@ EXPECTED_ARCHIVE_FILES = frozenset(
 
 class Stage3GRPOError(RuntimeError):
     """Raised when the frozen Stage 3 execution contract is violated."""
+
+
+RELEASE_SPEC = ReleaseSpec(
+    tag_prefix="morgana-v2-stage3-grpo",
+    cli_name="roleplay-stage3-grpo",
+    title="morgana-v2 Stage 3 GRPO {run_id}",
+    notes="Stage 3 GRPO 训练产物、奖励日志和 adapter。",
+    expected_files=EXPECTED_ARCHIVE_FILES,
+    contract_label="GRPO ",
+    default_repository=DEFAULT_GITHUB_REPOSITORY,
+)
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    try:
+        return _read_jsonl(path)
+    except ValueError as exc:
+        raise Stage3GRPOError(str(exc)) from exc
+
+
+def capture_environment() -> tuple[dict[str, Any], Any]:
+    return _capture_environment(
+        error_type=Stage3GRPOError,
+        run_command=subprocess.run,
+    )
+
+
+def create_exclusive_directory(path: Path) -> Path:
+    return _create_exclusive_directory(path, error_type=Stage3GRPOError)
+
+
+def find_final_adapter(output_dir: Path) -> Path:
+    return _find_final_adapter(output_dir, error_type=Stage3GRPOError)
+
+
+def git_context(repo_dir: Path) -> dict[str, str]:
+    return _git_context(
+        repo_dir,
+        error_type=Stage3GRPOError,
+        run_command=subprocess.run,
+    )
+
+
+def run_logged(
+    command: list[str],
+    log_path: Path,
+    repo_dir: Path,
+    environment: dict[str, str],
+    expected_steps: int,
+) -> float:
+    return _run_logged(
+        command,
+        log_path,
+        repo_dir,
+        environment,
+        expected_steps,
+        error_type=Stage3GRPOError,
+    )
+
+
+def validate_pinned_packages(
+    required_packages: dict[str, str] = PINNED_PACKAGES,
+    disabled_packages: tuple[str, ...] = ("flash-linear-attention", "causal-conv1d"),
+) -> dict[str, str]:
+    return _validate_pinned_packages(
+        required_packages,
+        disabled_packages,
+        error_type=Stage3GRPOError,
+    )
+
+
+def inspect_adapter_change(
+    source_dir: Path, trained_dir: Path
+) -> dict[str, Any]:
+    return _inspect_adapter_change(
+        source_dir,
+        trained_dir,
+        error_type=Stage3GRPOError,
+    )
+
+
+def generate_dev_review_artifacts(
+    repo_dir: Path,
+    sft_adapter: Path,
+    grpo_adapter: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
+    return generate_adapter_review_artifacts(
+        repo_dir,
+        sft_adapter,
+        grpo_adapter,
+        output_dir,
+        model_id=MODEL_ID,
+        model_revision=MODEL_REVISION,
+        dev_relative_path=DEV_RELATIVE_PATH,
+        dev_sha256=DEV_SHA256,
+        system_prompt_relative_path=SYSTEM_PROMPT_RELATIVE_PATH,
+        sampling_config=STAGE3_SAMPLING_CONFIG,
+        error_type=Stage3GRPOError,
+    )
 
 
 def repository_root() -> Path:
@@ -258,52 +335,6 @@ def validate_reward_samples(
     }
 
 
-def _records_from_responses(
-    responses: Any, seed: int, dev_rows: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    if len(responses) != len(dev_rows):
-        raise Stage3GRPOError("Dev 推理输出数量不正确")
-    records = []
-    for source, response in zip(dev_rows, responses, strict=True):
-        choice = response.choices[0]
-        raw_assistant = choice.message.content
-        if not isinstance(raw_assistant, str) or not raw_assistant.strip():
-            raise Stage3GRPOError(f"Dev 推理输出为空: {source['id']}")
-        assistant = normalize_empty_think_wrapper(raw_assistant)
-        if not assistant:
-            raise Stage3GRPOError(f"规范化后输出为空: {source['id']}")
-        records.append(
-            {
-                "seed": seed,
-                "id": source["id"],
-                "scenario": source["scenario"],
-                "target_goals": source["target_goals"],
-                "user": source["user"],
-                "assistant": assistant,
-                "raw_assistant": raw_assistant,
-                "finish_reason": choice.finish_reason,
-                "attempts": 1,
-            }
-        )
-    return records
-
-
-def _grpo_answer_key(answer_key: dict[str, Any]) -> dict[str, Any]:
-    """Rename the generic baseline/candidate key to SFT/GRPO terms."""
-    return {
-        **answer_key,
-        "answers": [
-            {
-                "review_id": row["review_id"],
-                "id": row["id"],
-                "sft_label": row["base_label"],
-                "grpo_label": row["sft_label"],
-            }
-            for row in answer_key["answers"]
-        ],
-    }
-
-
 def _evaluate_grpo_manual_review(
     packet: dict[str, Any],
     answer_key: dict[str, Any],
@@ -341,152 +372,6 @@ def _evaluate_grpo_manual_review(
             "sft": result["mean_scores"]["base"],
             "grpo": result["mean_scores"]["sft"],
         },
-    }
-
-
-def generate_dev_review_artifacts(
-    repo_dir: Path,
-    sft_adapter: Path,
-    grpo_adapter: Path,
-    output_dir: Path,
-) -> dict[str, Any]:
-    """Generate aligned SFT/GRPO Dev outputs and an anonymous A/B packet."""
-    try:
-        import torch
-        from peft import PeftModel
-        from swift import (
-            InferRequest,
-            RequestConfig,
-            TransformersEngine,
-            get_model_processor,
-            get_template,
-        )
-        from transformers import BitsAndBytesConfig
-    except ImportError as exc:
-        raise Stage3GRPOError(f"缺少 Dev 评估依赖: {exc.name}") from exc
-
-    dev_path = repo_dir / DEV_RELATIVE_PATH
-    validate_frozen_file(dev_path, DEV_SHA256)
-    dev_rows = read_jsonl(dev_path)
-    if len(dev_rows) != 10:
-        raise Stage3GRPOError(f"Dev 数量必须为 10，实际 {len(dev_rows)}")
-    system_prompt = (repo_dir / SYSTEM_PROMPT_RELATIVE_PATH).read_text(
-        encoding="utf-8"
-    )
-    requests = [
-        InferRequest(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": row["user"]},
-            ]
-        )
-        for row in dev_rows
-    ]
-    request_config = RequestConfig(
-        max_tokens=512,
-        **STAGE3_SAMPLING_CONFIG,
-    )
-    quantization = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.float32,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-    )
-
-    def infer(adapter: Path) -> list[dict[str, Any]]:
-        model, processor = get_model_processor(
-            MODEL_ID,
-            revision=MODEL_REVISION,
-            torch_dtype=torch.float32,
-            quantization_config=quantization,
-            use_hf=True,
-        )
-        model = PeftModel.from_pretrained(model, adapter)
-        engine = TransformersEngine(
-            model, template=get_template(processor, enable_thinking=False)
-        )
-        records = []
-        for seed in EVALUATION_SEEDS:
-            random.seed(seed)
-            torch.manual_seed(seed)
-            torch.cuda.manual_seed_all(seed)
-            records.extend(
-                _records_from_responses(
-                    engine.infer(requests, request_config=request_config),
-                    seed,
-                    dev_rows,
-                )
-            )
-        del engine, model, processor
-        gc.collect()
-        torch.cuda.empty_cache()
-        return records
-
-    sft_rows = infer(sft_adapter)
-    grpo_rows = infer(grpo_adapter)
-    expected_ids = [row["id"] for row in dev_rows]
-    automatic_gate = evaluate_core_behavior_gate(
-        sft_rows, grpo_rows, EVALUATION_SEEDS, expected_ids
-    )
-    packet, generic_key = build_manual_review(
-        sft_rows, grpo_rows, expected_ids
-    )
-    answer_key = _grpo_answer_key(generic_key)
-    paths = {
-        "sft_dev_outputs.jsonl": output_dir / "sft_dev_outputs.jsonl",
-        "grpo_dev_outputs.jsonl": output_dir / "grpo_dev_outputs.jsonl",
-        "manual_review_packet.json": output_dir / "manual_review_packet.json",
-        "manual_review_answer_key.json": output_dir
-        / "manual_review_answer_key.json",
-        "manual_review_results.json": output_dir / "manual_review_results.json",
-    }
-    write_jsonl_exclusive(paths["sft_dev_outputs.jsonl"], sft_rows)
-    write_jsonl_exclusive(paths["grpo_dev_outputs.jsonl"], grpo_rows)
-    write_json_atomic(paths["manual_review_packet.json"], packet)
-    write_json_atomic(paths["manual_review_answer_key.json"], answer_key)
-    write_json_atomic(
-        paths["manual_review_results.json"], empty_manual_review_results(packet)
-    )
-    return {"paths": paths, "automatic_gate": automatic_gate}
-
-
-def inspect_adapter_change(source_dir: Path, trained_dir: Path) -> dict[str, Any]:
-    """Require finite trained LoRA tensors with at least one changed value."""
-    try:
-        import numpy as np
-        from safetensors import safe_open
-    except ImportError as exc:
-        raise Stage3GRPOError("缺少 numpy 或 safetensors") from exc
-
-    source_path = source_dir / "adapter_model.safetensors"
-    trained_path = trained_dir / "adapter_model.safetensors"
-    changed_tensors = 0
-    changed_elements = 0
-    max_abs_delta = 0.0
-    with safe_open(source_path, framework="np") as source, safe_open(
-        trained_path, framework="np"
-    ) as trained:
-        source_keys = set(source.keys())
-        trained_keys = set(trained.keys())
-        if source_keys != trained_keys:
-            raise Stage3GRPOError("训练后 adapter tensor 集合发生变化")
-        for key in sorted(source_keys):
-            before = source.get_tensor(key)
-            after = trained.get_tensor(key)
-            if before.shape != after.shape or not np.isfinite(after).all():
-                raise Stage3GRPOError(f"训练后 adapter tensor 无效: {key}")
-            delta = np.abs(after - before)
-            changed = int(np.count_nonzero(delta))
-            changed_elements += changed
-            changed_tensors += int(changed > 0)
-            if delta.size:
-                max_abs_delta = max(max_abs_delta, float(delta.max()))
-    if not changed_tensors:
-        raise Stage3GRPOError("训练后 adapter 没有发生变化")
-    return {
-        "changed_tensors": changed_tensors,
-        "changed_elements": changed_elements,
-        "max_abs_delta": max_abs_delta,
     }
 
 
@@ -725,79 +610,17 @@ def run_stage3(output_root: Path | None = None) -> Path:
         raise
 
 
-def _bundle_paths(output_dir: Path, run_id: str) -> tuple[Path, Path, str]:
-    tag = f"morgana-v2-stage3-grpo-{run_id}"
-    return output_dir / f"{tag}.tar.gz", output_dir / f"{tag}.manifest.json", tag
-
-
-def create_release_bundle(run_dir: Path, output_dir: Path) -> tuple[Path, Path, str]:
+def create_release_bundle(
+    run_dir: Path, output_dir: Path
+) -> tuple[Path, Path, str]:
     """Create or safely reuse one verified Stage 3 release bundle."""
-    run_dir = run_dir.resolve()
-    output_dir = output_dir.resolve()
-    validate_archive_contract(run_dir)
-    summary = json.loads(
-        (run_dir / "run_summary.json").read_text(encoding="utf-8")
+    return _create_release_bundle(
+        run_dir,
+        output_dir,
+        spec=RELEASE_SPEC,
+        error_type=Stage3GRPOError,
+        validate_archive=validate_archive_contract,
     )
-    run_id = summary.get("run", {}).get("id")
-    if not isinstance(run_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
-    ):
-        raise Stage3GRPOError("run_summary.json 缺少有效 run.id")
-    try:
-        output_dir.relative_to(run_dir)
-    except ValueError:
-        pass
-    else:
-        raise Stage3GRPOError("发布包目录不能位于 run 目录内")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    bundle_path, manifest_path, tag = _bundle_paths(output_dir, run_id)
-
-    contents = {
-        name: _artifact_metadata(run_dir / name, run_dir)
-        for name in sorted(EXPECTED_ARCHIVE_FILES)
-    }
-    if bundle_path.exists() or manifest_path.exists():
-        if not bundle_path.is_file() or not manifest_path.is_file():
-            raise Stage3GRPOError("发布包或 manifest 不完整")
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if (
-            manifest.get("contents") != contents
-            or manifest.get("bundle", {}).get("sha256")
-            != sha256_file(bundle_path)
-        ):
-            raise Stage3GRPOError("现有发布包与 run 不一致")
-        return bundle_path, manifest_path, tag
-
-    temporary = output_dir / f".{bundle_path.name}.{uuid4().hex}.tmp"
-    try:
-        with tarfile.open(temporary, "w:gz") as archive:
-            for name in sorted(EXPECTED_ARCHIVE_FILES):
-                archive.add(
-                    run_dir / name,
-                    arcname=f"{run_id}/{name}",
-                    recursive=False,
-                )
-        temporary.replace(bundle_path)
-        manifest = {
-            "schema_version": 1,
-            "run_id": run_id,
-            "run_status": summary["status"],
-            "source_commit": summary.get("run", {}).get("commit"),
-            "github_release_tag": tag,
-            "bundle": {
-                "file": bundle_path.name,
-                "bytes": bundle_path.stat().st_size,
-                "sha256": sha256_file(bundle_path),
-            },
-            "contents": contents,
-        }
-        write_json_atomic(manifest_path, manifest)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        bundle_path.unlink(missing_ok=True)
-        manifest_path.unlink(missing_ok=True)
-        raise
-    return bundle_path, manifest_path, tag
 
 
 def publish_run(
@@ -806,110 +629,35 @@ def publish_run(
     repository: str = DEFAULT_GITHUB_REPOSITORY,
 ) -> tuple[Path, Path, str]:
     """Bundle and upload one successful Stage 3 run."""
-    bundle_path, manifest_path, tag = create_release_bundle(
-        run_dir, output_dir
-    )
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    command = [
-        "gh",
-        "release",
-        "create",
-        tag,
-        str(bundle_path),
-        str(manifest_path),
-        "--repo",
+    return _publish_release(
+        run_dir,
+        output_dir,
         repository,
-        "--title",
-        f"morgana-v2 Stage 3 GRPO {manifest['run_id']}",
-        "--notes",
-        "Stage 3 GRPO 训练产物、奖励日志和 adapter。",
-    ]
-    source_commit = manifest.get("source_commit")
-    if isinstance(source_commit, str) and source_commit:
-        command.extend(["--target", source_commit])
-    try:
-        subprocess.run(command, check=True)
-    except FileNotFoundError as exc:
-        raise Stage3GRPOError("未安装 GitHub CLI：gh") from exc
-    except subprocess.CalledProcessError as exc:
-        raise Stage3GRPOError(
-            "GitHub Release 上传失败；本地发布包已保留"
-        ) from exc
-    return bundle_path, manifest_path, tag
+        spec=RELEASE_SPEC,
+        error_type=Stage3GRPOError,
+        validate_archive=validate_archive_contract,
+        run_command=subprocess.run,
+    )
 
 
 def format_download_command(
     tag: str, repository: str = DEFAULT_GITHUB_REPOSITORY
 ) -> str:
     """Format the copyable local download command."""
-    command = ["roleplay-stage3-grpo", "download", "--tag", tag]
-    if repository != DEFAULT_GITHUB_REPOSITORY:
-        command.extend(["--repo", repository])
-    return shlex.join(command)
+    return _format_download_command(tag, repository, spec=RELEASE_SPEC)
 
 
 def extract_release_bundle(
     bundle_path: Path, manifest_path: Path, output_root: Path
 ) -> Path:
     """Verify and atomically extract one Stage 3 release bundle."""
-    bundle_path = bundle_path.resolve()
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("bundle", {}).get("sha256") != sha256_file(bundle_path):
-        raise Stage3GRPOError("下载包 SHA-256 与 manifest 不匹配")
-    run_id = manifest.get("run_id")
-    if not isinstance(run_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
-    ):
-        raise Stage3GRPOError("manifest 缺少有效 run_id")
-    contents = manifest.get("contents")
-    if (
-        not isinstance(contents, dict)
-        or set(contents) != EXPECTED_ARCHIVE_FILES
-        or any(not isinstance(metadata, dict) for metadata in contents.values())
-    ):
-        raise Stage3GRPOError("manifest 文件清单不满足 GRPO 归档契约")
-    expected_names = {f"{run_id}/{name}" for name in contents}
-    output_root = output_root.resolve()
-    destination = output_root / run_id
-    if destination.exists():
-        raise Stage3GRPOError(
-            f"本地 run 目录已存在，拒绝覆盖: {destination}"
-        )
-    output_root.mkdir(parents=True, exist_ok=True)
-    staging_root = output_root / f".download-{uuid4().hex}"
-    staging_root.mkdir()
-    try:
-        with tarfile.open(bundle_path, "r:gz") as archive:
-            members = archive.getmembers()
-            if {member.name for member in members} != expected_names or not all(
-                member.isfile() for member in members
-            ):
-                raise Stage3GRPOError("发布包内容与 manifest 不一致")
-            for member in members:
-                target = (staging_root / member.name).resolve()
-                try:
-                    target.relative_to(staging_root)
-                except ValueError as exc:
-                    raise Stage3GRPOError("发布包包含不安全路径") from exc
-                target.parent.mkdir(parents=True, exist_ok=True)
-                source = archive.extractfile(member)
-                if source is None:
-                    raise Stage3GRPOError(f"无法读取发布包文件: {member.name}")
-                with source, target.open("xb") as output_file:
-                    shutil.copyfileobj(source, output_file)
-        staged_run = staging_root / run_id
-        for relative, metadata in contents.items():
-            path = staged_run / relative
-            if (
-                not path.is_file()
-                or path.stat().st_size != metadata.get("bytes")
-                or sha256_file(path) != metadata.get("sha256")
-            ):
-                raise Stage3GRPOError(f"解包文件校验失败: {relative}")
-        staged_run.replace(destination)
-    finally:
-        shutil.rmtree(staging_root, ignore_errors=True)
-    return destination
+    return _extract_release_bundle(
+        bundle_path,
+        manifest_path,
+        output_root,
+        spec=RELEASE_SPEC,
+        error_type=Stage3GRPOError,
+    )
 
 
 def download_release(
@@ -918,33 +666,14 @@ def download_release(
     repository: str = DEFAULT_GITHUB_REPOSITORY,
 ) -> Path:
     """Download, verify, and extract one Stage 3 GitHub Release."""
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", tag):
-        raise Stage3GRPOError("release tag 格式无效")
-    with tempfile.TemporaryDirectory() as temporary:
-        download_dir = Path(temporary)
-        try:
-            subprocess.run(
-                [
-                    "gh",
-                    "release",
-                    "download",
-                    tag,
-                    "--repo",
-                    repository,
-                    "--dir",
-                    str(download_dir),
-                ],
-                check=True,
-            )
-        except FileNotFoundError as exc:
-            raise Stage3GRPOError("未安装 GitHub CLI：gh") from exc
-        except subprocess.CalledProcessError as exc:
-            raise Stage3GRPOError(f"GitHub Release 下载失败: {tag}") from exc
-        bundle = download_dir / f"{tag}.tar.gz"
-        manifest = download_dir / f"{tag}.manifest.json"
-        if not bundle.is_file() or not manifest.is_file():
-            raise Stage3GRPOError("Release 缺少发布包或 manifest")
-        return extract_release_bundle(bundle, manifest, output_root)
+    return _download_release(
+        tag,
+        output_root,
+        repository,
+        spec=RELEASE_SPEC,
+        error_type=Stage3GRPOError,
+        run_command=subprocess.run,
+    )
 
 
 def review_run(run_dir: Path) -> dict[str, Any]:
@@ -1055,7 +784,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"本地 run 目录: {run_dir}")
             print("请填写 manual_review_results.json 后运行 review。")
     except (
-        Stage2SFTError,
         Stage3GRPOError,
         subprocess.CalledProcessError,
     ) as exc:

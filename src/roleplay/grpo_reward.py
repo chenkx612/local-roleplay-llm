@@ -623,3 +623,7 @@ class MorganaRewardEngine:
         if len(rewards) != count:
             raise GRPORewardError("奖励数量与 completions 不一致")
         return rewards
+
+
+last_user_message = _last_user_message
+redact_api_key = _redact_api_key

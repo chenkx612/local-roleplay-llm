@@ -13,6 +13,7 @@ dependencies = ["openai>=1.0"]
 local-mlx = ["mlx-lm==0.31.3"]
 
 [project.scripts]
+roleplay = "roleplay.cli:main"
 roleplay-chat = "roleplay.chat:main"
 roleplay-datagen = "roleplay.datagen:main"
 roleplay-inference = "roleplay.inference:main"

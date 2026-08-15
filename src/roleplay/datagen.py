@@ -1063,7 +1063,7 @@ def generate(
     return {"sft": sft_path, "dpo": dpo_path, "dev": dev_path, "eval": eval_path}
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="生成并冻结 SFT/DPO/Dev/Eval Prompt split（DeepSeek API）"
     )
@@ -1101,7 +1101,7 @@ def main() -> None:
         action="store_true",
         help="仅校验并保存输入快照与 system prompt，不调用 API",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     examples_path = args.style_examples or (
         args.persona.parent / "style_examples.jsonl"
@@ -1131,6 +1131,9 @@ def main() -> None:
         )
     except (OSError, ValueError, PersonaValidationError, GenerationShortfallError) as exc:
         raise SystemExit(f"生成失败：{exc}") from exc
+
+
+render_examples = _render_examples
 
 
 if __name__ == "__main__":

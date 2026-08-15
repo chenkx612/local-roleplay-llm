@@ -3,9 +3,13 @@
 ## v3 当前入口
 
 - [训练计划](PLAN.md)
+- [仓库架构](ARCHITECTURE.md)
 - [运行日志](RUNLOG.md)
 - [已知问题](ISSUES.md)
 - [AutoDL SFT/DPO/GRPO 指南](AUTODL.md)
+
+`morgana-v2` 已归档，`morgana-v3` 尚未立项。仓库的新统一命令为 `roleplay`；历史文档中的
+分阶段 console script 为复现实验而保留。
 
 ## 历史报告与规约
 

@@ -24,7 +24,7 @@ from .datagen import (
     DEEPSEEK_MODEL,
     SCENARIOS,
     STYLE_RESPONSE_PATTERN,
-    _render_examples,
+    render_examples as _render_examples,
     load_examples as load_style_examples,
     write_jsonl_bundle,
 )
@@ -1121,7 +1121,7 @@ def rerun_pilot_teacher(
     return outputs
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="生成 Student baseline、Teacher 纠错和 ms-swift SFT 数据"
     )
@@ -1179,7 +1179,7 @@ def main() -> None:
         action="store_true",
         help="冻结已有 baseline，只重跑 Teacher 纠错（可用于 Pilot 或正式数据）",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     examples_path = args.style_examples or (
         args.persona.parent / "style_examples.jsonl"
     )

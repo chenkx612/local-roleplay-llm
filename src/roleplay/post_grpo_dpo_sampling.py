@@ -8,48 +8,52 @@ import json
 import os
 import random
 import re
-import shlex
 import shutil
 import subprocess
 import sys
-import tarfile
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
-from uuid import uuid4
 
+from roleplay.core.artifacts import sha256_file, write_json_atomic
+from roleplay.core.release import (
+    ReleaseSpec,
+    create_release_bundle as _create_release_bundle,
+    download_release as _download_release,
+    extract_release_bundle as _extract_release_bundle,
+    format_download_command as _format_download_command,
+    publish_release as _publish_release,
+)
+from roleplay.core.runtime import (
+    DEFAULT_GITHUB_REPOSITORY,
+    PINNED_PACKAGES,
+    capture_environment as _capture_environment,
+    configure_huggingface_environment,
+    create_exclusive_directory as _create_exclusive_directory,
+    generate_run_id,
+    git_context as _git_context,
+    validate_pinned_packages as _validate_pinned_packages,
+)
+from roleplay.experiments.morgana_v2 import (
+    MODEL_ID,
+    MODEL_REVISION,
+    SYSTEM_PROMPT_SHA256,
+)
 from roleplay.post_grpo_dpo_data import (
     GRPO_ADAPTER_HASHES,
     PostGRPODPODataError,
-    SYSTEM_PROMPT_SHA256,
     TARGET_ISSUES,
-    _canonical_user,
-    _reward_v2,
-    _row_users,
-    _validate_split,
+    canonical_user as _canonical_user,
+    reward_candidate as _reward_v2,
+    row_users as _row_users,
+    validate_split as _validate_split,
     build_review_artifacts,
     load_jsonl,
 )
 from roleplay.sft_eval import normalize_empty_think_wrapper
-from roleplay.stage2_sft import (
-    DEFAULT_GITHUB_REPOSITORY,
-    PINNED_PACKAGES,
-    Stage2SFTError,
-    capture_environment,
-    configure_huggingface_environment,
-    create_exclusive_directory,
-    generate_run_id,
-    git_context,
-    sha256_file,
-    validate_pinned_packages,
-    write_json_atomic,
-)
 
 
-MODEL_ID = "Qwen/Qwen3.5-2B"
-MODEL_REVISION = "965dcc54bc9c0591873df0e9869c056a54d323d1"
 EXPANSION_PROMPTS_RELATIVE_PATH = Path(
     "data/runs/morgana-v2/post_grpo_dpo_prompts_expansion.jsonl"
 )
@@ -113,6 +117,51 @@ EXPECTED_ARCHIVE_FILES = frozenset(
 
 class PostGRPODPOSamplingError(RuntimeError):
     """Raised when the frozen AutoDL sampling contract is violated."""
+
+
+RELEASE_SPEC = ReleaseSpec(
+    tag_prefix="morgana-v2-post-grpo-dpo-sampling",
+    cli_name="roleplay-post-grpo-dpo-sampling",
+    title="morgana-v2 post-GRPO DPO sampling {run_id}",
+    notes="480条 post-GRPO DPO 候选与本地 Codex 裁决材料。",
+    expected_files=EXPECTED_ARCHIVE_FILES,
+    contract_label="",
+    default_repository=DEFAULT_GITHUB_REPOSITORY,
+    manifest_extra={"stage": "post_grpo_dpo_sampling"},
+)
+
+
+def capture_environment() -> tuple[dict[str, Any], Any]:
+    return _capture_environment(
+        error_type=PostGRPODPOSamplingError,
+        run_command=subprocess.run,
+    )
+
+
+def create_exclusive_directory(path: Path) -> Path:
+    return _create_exclusive_directory(
+        path,
+        error_type=PostGRPODPOSamplingError,
+    )
+
+
+def git_context(repo_dir: Path) -> dict[str, str]:
+    return _git_context(
+        repo_dir,
+        error_type=PostGRPODPOSamplingError,
+        run_command=subprocess.run,
+    )
+
+
+def validate_pinned_packages(
+    required_packages: dict[str, str] = PINNED_PACKAGES,
+    disabled_packages: tuple[str, ...] = ("flash-linear-attention", "causal-conv1d"),
+) -> dict[str, str]:
+    return _validate_pinned_packages(
+        required_packages,
+        disabled_packages,
+        error_type=PostGRPODPOSamplingError,
+    )
 
 
 def repository_root() -> Path:
@@ -854,78 +903,17 @@ def run_sampling(output_root: Path | None = None) -> Path:
         raise
 
 
-def _bundle_paths(output_dir: Path, run_id: str) -> tuple[Path, Path, str]:
-    tag = f"morgana-v2-post-grpo-dpo-sampling-{run_id}"
-    return (
-        output_dir / f"{tag}.tar.gz",
-        output_dir / f"{tag}.manifest.json",
-        tag,
-    )
-
-
 def create_release_bundle(
     run_dir: Path, output_dir: Path
 ) -> tuple[Path, Path, str]:
     """Create or reuse one exact, content-addressed sampling bundle."""
-    run_dir = run_dir.resolve()
-    output_dir = output_dir.resolve()
-    validate_archive_contract(run_dir)
-    summary = _read_json_object(run_dir / "run_summary.json", "run summary")
-    run_id = summary.get("run", {}).get("id")
-    if not isinstance(run_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
-    ):
-        raise PostGRPODPOSamplingError("run summary 缺少有效 run.id")
-    try:
-        output_dir.relative_to(run_dir)
-    except ValueError:
-        pass
-    else:
-        raise PostGRPODPOSamplingError("发布包目录不能位于 run 目录内")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    bundle, manifest_path, tag = _bundle_paths(output_dir, run_id)
-    contents = {
-        name: _artifact(run_dir / name, run_dir)
-        for name in sorted(EXPECTED_ARCHIVE_FILES)
-    }
-    if bundle.exists() or manifest_path.exists():
-        if not bundle.is_file() or not manifest_path.is_file():
-            raise PostGRPODPOSamplingError("发布包或 manifest 不完整")
-        manifest = _read_json_object(manifest_path, "release manifest")
-        if (
-            manifest.get("contents") != contents
-            or manifest.get("bundle", {}).get("sha256")
-            != sha256_file(bundle)
-        ):
-            raise PostGRPODPOSamplingError("现有发布包与 run 不一致")
-        return bundle, manifest_path, tag
-    temporary = output_dir / f".{bundle.name}.{uuid4().hex}.tmp"
-    try:
-        with tarfile.open(temporary, "w:gz") as archive:
-            for name in sorted(EXPECTED_ARCHIVE_FILES):
-                archive.add(run_dir / name, arcname=f"{run_id}/{name}")
-        temporary.replace(bundle)
-        manifest = {
-            "schema_version": 1,
-            "stage": "post_grpo_dpo_sampling",
-            "run_id": run_id,
-            "run_status": summary["status"],
-            "source_commit": summary.get("run", {}).get("commit"),
-            "github_release_tag": tag,
-            "bundle": {
-                "file": bundle.name,
-                "bytes": bundle.stat().st_size,
-                "sha256": sha256_file(bundle),
-            },
-            "contents": contents,
-        }
-        write_json_atomic(manifest_path, manifest)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        bundle.unlink(missing_ok=True)
-        manifest_path.unlink(missing_ok=True)
-        raise
-    return bundle, manifest_path, tag
+    return _create_release_bundle(
+        run_dir,
+        output_dir,
+        spec=RELEASE_SPEC,
+        error_type=PostGRPODPOSamplingError,
+        validate_archive=validate_archive_contract,
+    )
 
 
 def publish_run(
@@ -934,113 +922,34 @@ def publish_run(
     repository: str = DEFAULT_GITHUB_REPOSITORY,
 ) -> tuple[Path, Path, str]:
     """Publish one validated sampling bundle to GitHub Releases."""
-    bundle, manifest_path, tag = create_release_bundle(run_dir, output_dir)
-    manifest = _read_json_object(manifest_path, "release manifest")
-    command = [
-        "gh",
-        "release",
-        "create",
-        tag,
-        str(bundle),
-        str(manifest_path),
-        "--repo",
+    return _publish_release(
+        run_dir,
+        output_dir,
         repository,
-        "--title",
-        f"morgana-v2 post-GRPO DPO sampling {manifest['run_id']}",
-        "--notes",
-        "480条 post-GRPO DPO 候选与本地 Codex 裁决材料。",
-    ]
-    source_commit = manifest.get("source_commit")
-    if isinstance(source_commit, str) and source_commit:
-        command.extend(["--target", source_commit])
-    try:
-        subprocess.run(command, check=True)
-    except FileNotFoundError as exc:
-        raise PostGRPODPOSamplingError("未安装 GitHub CLI：gh") from exc
-    except subprocess.CalledProcessError as exc:
-        raise PostGRPODPOSamplingError(
-            "GitHub Release 上传失败；本地发布包已保留"
-        ) from exc
-    return bundle, manifest_path, tag
+        spec=RELEASE_SPEC,
+        error_type=PostGRPODPOSamplingError,
+        validate_archive=validate_archive_contract,
+        run_command=subprocess.run,
+    )
 
 
 def format_download_command(
     tag: str, repository: str = DEFAULT_GITHUB_REPOSITORY
 ) -> str:
-    command = ["roleplay-post-grpo-dpo-sampling", "download", "--tag", tag]
-    if repository != DEFAULT_GITHUB_REPOSITORY:
-        command.extend(["--repo", repository])
-    return shlex.join(command)
+    return _format_download_command(tag, repository, spec=RELEASE_SPEC)
 
 
 def extract_release_bundle(
     bundle: Path, manifest_path: Path, output_root: Path
 ) -> Path:
     """Verify and safely extract one downloaded sampling release."""
-    bundle = bundle.resolve()
-    manifest = _read_json_object(manifest_path, "release manifest")
-    if manifest.get("stage") != "post_grpo_dpo_sampling":
-        raise PostGRPODPOSamplingError("manifest stage 不正确")
-    if manifest.get("bundle", {}).get("sha256") != sha256_file(bundle):
-        raise PostGRPODPOSamplingError("下载包 SHA-256 与 manifest 不匹配")
-    run_id = manifest.get("run_id")
-    if not isinstance(run_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id
-    ):
-        raise PostGRPODPOSamplingError("manifest 缺少有效 run_id")
-    contents = manifest.get("contents")
-    if not isinstance(contents, dict) or set(contents) != EXPECTED_ARCHIVE_FILES:
-        raise PostGRPODPOSamplingError("manifest 文件清单不满足归档契约")
-    expected_names = {f"{run_id}/{name}" for name in contents}
-    output_root = output_root.resolve()
-    destination = output_root / run_id
-    if destination.exists():
-        raise PostGRPODPOSamplingError(
-            f"本地 run 目录已存在，拒绝覆盖: {destination}"
-        )
-    output_root.mkdir(parents=True, exist_ok=True)
-    staging = output_root / f".download-{uuid4().hex}"
-    staging.mkdir()
-    try:
-        with tarfile.open(bundle, "r:gz") as archive:
-            members = archive.getmembers()
-            if {member.name for member in members} != expected_names or not all(
-                member.isfile() for member in members
-            ):
-                raise PostGRPODPOSamplingError(
-                    "发布包内容与 manifest 不一致"
-                )
-            for member in members:
-                target = (staging / member.name).resolve()
-                try:
-                    target.relative_to(staging)
-                except ValueError as exc:
-                    raise PostGRPODPOSamplingError(
-                        "发布包包含不安全路径"
-                    ) from exc
-                target.parent.mkdir(parents=True, exist_ok=True)
-                source = archive.extractfile(member)
-                if source is None:
-                    raise PostGRPODPOSamplingError(
-                        f"无法读取发布包文件: {member.name}"
-                    )
-                with source, target.open("xb") as output:
-                    shutil.copyfileobj(source, output)
-        staged_run = staging / run_id
-        for relative, metadata in contents.items():
-            path = staged_run / relative
-            if (
-                not path.is_file()
-                or path.stat().st_size != metadata.get("bytes")
-                or sha256_file(path) != metadata.get("sha256")
-            ):
-                raise PostGRPODPOSamplingError(
-                    f"解包文件校验失败: {relative}"
-                )
-        staged_run.replace(destination)
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
-    return destination
+    return _extract_release_bundle(
+        bundle,
+        manifest_path,
+        output_root,
+        spec=RELEASE_SPEC,
+        error_type=PostGRPODPOSamplingError,
+    )
 
 
 def download_release(
@@ -1049,35 +958,14 @@ def download_release(
     repository: str = DEFAULT_GITHUB_REPOSITORY,
 ) -> Path:
     """Download, validate, and extract one sampling GitHub Release."""
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", tag):
-        raise PostGRPODPOSamplingError("release tag 格式无效")
-    with tempfile.TemporaryDirectory() as temporary:
-        download_dir = Path(temporary)
-        try:
-            subprocess.run(
-                [
-                    "gh",
-                    "release",
-                    "download",
-                    tag,
-                    "--repo",
-                    repository,
-                    "--dir",
-                    str(download_dir),
-                ],
-                check=True,
-            )
-        except FileNotFoundError as exc:
-            raise PostGRPODPOSamplingError("未安装 GitHub CLI：gh") from exc
-        except subprocess.CalledProcessError as exc:
-            raise PostGRPODPOSamplingError(
-                f"GitHub Release 下载失败: {tag}"
-            ) from exc
-        bundle = download_dir / f"{tag}.tar.gz"
-        manifest = download_dir / f"{tag}.manifest.json"
-        if not bundle.is_file() or not manifest.is_file():
-            raise PostGRPODPOSamplingError("Release 缺少发布包或 manifest")
-        return extract_release_bundle(bundle, manifest, output_root)
+    return _download_release(
+        tag,
+        output_root,
+        repository,
+        spec=RELEASE_SPEC,
+        error_type=PostGRPODPOSamplingError,
+        run_command=subprocess.run,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1129,7 +1017,6 @@ def main(argv: list[str] | None = None) -> int:
         OSError,
         PostGRPODPODataError,
         PostGRPODPOSamplingError,
-        Stage2SFTError,
         subprocess.CalledProcessError,
         ValueError,
     ) as exc:

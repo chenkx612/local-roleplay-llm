@@ -51,7 +51,7 @@ def reply(client: OpenAI, messages: list[dict[str, str]]) -> str:
     return response.choices[0].message.content or ""
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
@@ -62,7 +62,7 @@ def main() -> None:
     parser.add_argument(
         "--persona", type=Path, default=ROOT / "data/persona.json", help="角色设定 JSON 文件"
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     client = OpenAI(base_url="http://127.0.0.1:8080/v1", api_key="none")
     try:

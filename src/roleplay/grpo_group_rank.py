@@ -20,8 +20,8 @@ from roleplay.grpo_reward import (
     JudgeCallError,
     JudgeResponseError,
     VIOLATION_CODES,
-    _last_user_message,
-    _redact_api_key,
+    last_user_message as _last_user_message,
+    redact_api_key as _redact_api_key,
     build_judge_system,
     load_frozen_persona,
 )

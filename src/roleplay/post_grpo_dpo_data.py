@@ -23,10 +23,11 @@ from roleplay.grpo_candidates import (
     TEMPERATURE,
     TOP_K,
     TOP_P,
-    _generate_one,
-    _verify_loaded_adapter,
+    generate_one as _generate_one,
+    verify_loaded_adapter as _verify_loaded_adapter,
     convert_peft_adapter_to_mlx,
 )
+from roleplay.experiments.morgana_v2 import SYSTEM_PROMPT_SHA256
 from roleplay.grpo_rule_reward import (
     RewardConstraints,
     score_completion,
@@ -52,9 +53,6 @@ DEFAULT_AUDIT_OUTPUT = (
     ROOT / "data/runs/morgana-v2/post_grpo_dpo_train_audit.json"
 )
 
-SYSTEM_PROMPT_SHA256 = (
-    "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
-)
 GRPO_ADAPTER_HASHES = {
     "adapter_model.safetensors": (
         "89ca4fa213ea16eeee002b088ea46b3012b6311b02f09b2b27b0937ab6dcd30f"
@@ -1430,6 +1428,12 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, PostGRPODPODataError, ValueError) as exc:
         parser.error(str(exc))
     return 0
+
+
+canonical_user = _canonical_user
+reward_candidate = _reward_v2
+row_users = _row_users
+validate_split = _validate_split
 
 
 if __name__ == "__main__":

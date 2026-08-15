@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
+from roleplay.experiments.morgana_v2 import SYSTEM_PROMPT_SHA256
 from roleplay.sft_eval import normalize_empty_think_wrapper
 
 
@@ -31,9 +32,6 @@ MLX_ADAPTER = (
 PROMPTS_PATH = ROOT / "data/runs/morgana-v2/rl_train.jsonl"
 PROMPTS_SHA256 = "b36b4f01f232901ab0b5f6011fa64b66f48e02c75b6b0050035e4caf703e7231"
 SYSTEM_PROMPT_PATH = ROOT / "data/runs/morgana-v2/system_prompt.txt"
-SYSTEM_PROMPT_SHA256 = (
-    "d88993aaa1178ced740f6b54530a27e5fcdb2486a66d8b460367e842b53ee112"
-)
 OUTPUT_PATH = (
     ROOT / "output/morgana-v2/stage3-grpo/reward-validation/sft_candidates.jsonl"
 )
@@ -359,7 +357,7 @@ def generate_candidates(
     return records
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="用冻结的第 4 次 SFT adapter 生成 GRPO 奖励校准候选"
     )
@@ -371,7 +369,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=OUTPUT_PATH)
     parser.add_argument("--prompt-id", action="append", dest="prompt_ids")
     parser.add_argument("--candidates-per-prompt", type=int, default=4)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     try:
         if not args.base_model.is_dir():
@@ -392,6 +390,12 @@ def main() -> None:
         print(f"完成，共 {len(records)} 个候选，输出: {args.output}")
     except (CandidateGenerationError, OSError, ValueError) as exc:
         parser.error(str(exc))
+
+
+# Public boundaries for data workflows; private aliases remain compatible with
+# the frozen v2 tests and monkeypatch points.
+generate_one = _generate_one
+verify_loaded_adapter = _verify_loaded_adapter
 
 
 if __name__ == "__main__":

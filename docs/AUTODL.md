@@ -1,5 +1,10 @@
 # AutoDL：SFT、DPO 与 GRPO
 
+> 本文保留 v2 的精确历史命令用于复现。新操作可将 `roleplay-stage2-sft`、
+> `roleplay-stage3-dpo`、`roleplay-stage4-grpo` 和 `roleplay-post-grpo-dpo`
+> 分别替换为 `roleplay train sft`、`roleplay train dpo`、`roleplay train grpo` 和
+> `roleplay train post-dpo`。参数和产物合同保持不变。
+
 在 AutoDL 单张 24GB GPU 上运行 morgana-v2 的阶段二 SFT、阶段三 DPO、历史主观 GRPO、
 Stage 4 规则型 GRPO 和最终的 post-GRPO DPO。
 
