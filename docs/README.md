@@ -8,6 +8,10 @@
 - [已知问题](ISSUES.md)
 - [AutoDL SFT/DPO/GRPO 指南](AUTODL.md)
 
+## 求职参考
+
+- [简历与面试参考](RESUME_REFERENCE.md)：项目定位、可量化成果、简历条目、面试案例与表述边界。
+
 `morgana-v2` 已归档，`morgana-v3` 尚未立项。仓库的新统一命令为 `roleplay`；历史文档中的
 分阶段 console script 为复现实验而保留。
 
